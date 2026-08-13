@@ -817,7 +817,7 @@ impl GatewayUpdatesHandler {
         network: &WireguardNetwork<Id>,
         pool: Option<&PgPool>,
     ) -> bool {
-        if network.mfa_enabled() {
+        if network.mfa_enabled {
             return true;
         }
 
@@ -1278,7 +1278,7 @@ mod tests {
                 device::WireguardNetworkDevice,
                 gateway::Gateway,
                 vpn_client_session::VpnClientSession,
-                wireguard::{LocationMfaMode, ServiceLocationMode, WireguardNetwork},
+                wireguard::{ServiceLocationMode, WireguardNetwork},
             },
             setup_pool,
         },
@@ -1293,7 +1293,7 @@ mod tests {
         GatewayHandler, GatewayUpdatesHandler, WireguardPeer, try_protos_into_stats_message,
     };
 
-    fn test_network(location_mfa_mode: LocationMfaMode) -> WireguardNetwork<Id> {
+    fn test_network(mfa_enabled: bool) -> WireguardNetwork<Id> {
         WireguardNetwork::new(
             "test-network".into(),
             51820,
@@ -1304,7 +1304,7 @@ mod tests {
             false,
             false,
             false,
-            location_mfa_mode,
+            mfa_enabled,
             ServiceLocationMode::Disabled,
         )
         .with_id(1)
@@ -1336,7 +1336,7 @@ mod tests {
             false,
             false,
             false,
-            LocationMfaMode::default(),
+            false, // mfa_enabled
             ServiceLocationMode::default(),
         )
         .set_address([
@@ -1467,21 +1467,21 @@ mod tests {
         assert!(config.firewall_config.is_none());
     }
 
-    fn test_handler(location_mfa_mode: LocationMfaMode) -> GatewayUpdatesHandler {
-        let network = test_network(location_mfa_mode);
+    fn test_handler(mfa_enabled: bool) -> GatewayUpdatesHandler {
+        let network = test_network(mfa_enabled);
         let (events_tx, events_rx) = broadcast::channel(1);
         let (tx, _rx) = unbounded_channel();
         drop(events_tx);
 
         let mut handler =
             GatewayUpdatesHandler::new(network.id, network, "gateway".into(), None, events_rx, tx);
-        handler.session_authorization_required = handler.network.mfa_enabled();
+        handler.session_authorization_required = handler.network.mfa_enabled;
         handler
     }
 
     #[test]
     fn test_runtime_peer_update_strips_preshared_key_for_non_mfa_locations() {
-        let handler = test_handler(LocationMfaMode::Disabled);
+        let handler = test_handler(false);
 
         let peer = handler
             .runtime_peer_update(
@@ -1501,7 +1501,7 @@ mod tests {
 
     #[test]
     fn test_runtime_peer_update_skips_authorized_mfa_peer_without_session_preshared_key() {
-        let handler = test_handler(LocationMfaMode::Internal);
+        let handler = test_handler(true);
 
         let peer = handler.runtime_peer_update(
             "device",
@@ -1516,7 +1516,7 @@ mod tests {
 
     #[test]
     fn test_runtime_peer_update_preserves_session_preshared_key_for_authorized_mfa_peer() {
-        let handler = test_handler(LocationMfaMode::Internal);
+        let handler = test_handler(true);
 
         let peer = handler
             .runtime_peer_update(
@@ -1533,7 +1533,7 @@ mod tests {
 
     #[test]
     fn test_runtime_peer_update_preserves_session_preshared_key_for_authorized_posture_peer() {
-        let mut handler = test_handler(LocationMfaMode::Disabled);
+        let mut handler = test_handler(false);
         handler.session_authorization_required = true;
 
         let peer = handler
@@ -1596,7 +1596,7 @@ mod tests {
             .try_set_address("10.7.1.1/24")
             .unwrap();
         network.name = "mfa-full-config-location".to_owned();
-        network.location_mfa_mode = LocationMfaMode::Internal;
+        network.mfa_enabled = true;
         network.service_location_mode = ServiceLocationMode::Disabled;
         let network = network.save(&pool).await.unwrap();
 

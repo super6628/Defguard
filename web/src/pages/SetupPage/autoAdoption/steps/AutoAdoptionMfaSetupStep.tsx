@@ -1,22 +1,18 @@
 import { useMutation } from '@tanstack/react-query';
 import { m } from '../../../../paraglide/messages';
 import api from '../../../../shared/api/api';
-import { LocationMfaMode } from '../../../../shared/api/types';
-import { branding } from '../../../../shared/branding/branding';
-import { businessBadgeProps } from '../../../../shared/components/badges/BusinessBadge';
 import { Controls } from '../../../../shared/components/Controls/Controls';
 import { WizardCard } from '../../../../shared/components/wizard/WizardCard/WizardCard';
 import { Button } from '../../../../shared/defguard-ui/components/Button/Button';
-import { InfoBanner } from '../../../../shared/defguard-ui/components/InfoBanner/InfoBanner';
-import { InteractiveBlock } from '../../../../shared/defguard-ui/components/InteractiveBlock/InteractiveBlock';
 import { SizedBox } from '../../../../shared/defguard-ui/components/SizedBox/SizedBox';
+import { Toggle } from '../../../../shared/defguard-ui/components/Toggle/Toggle';
 import { ThemeSpacing } from '../../../../shared/defguard-ui/types';
 import { AutoAdoptionSetupStep } from '../types';
 import { useAutoAdoptionSetupWizardStore } from '../useAutoAdoptionSetupWizardStore';
 
 export const AutoAdoptionMfaSetupStep = () => {
   const setActiveStep = useAutoAdoptionSetupWizardStore((s) => s.setActiveStep);
-  const mfaMode = useAutoAdoptionSetupWizardStore((s) => s.vpn_mfa_mode);
+  const mfaEnabled = useAutoAdoptionSetupWizardStore((s) => s.mfa_enabled);
 
   const { mutate: setMfaSettings, isPending } = useMutation({
     mutationFn: api.initial_setup.setAutoAdoptionMfaSettings,
@@ -25,46 +21,17 @@ export const AutoAdoptionMfaSetupStep = () => {
     },
   });
 
-  const setMfaMode = (mode: (typeof LocationMfaMode)[keyof typeof LocationMfaMode]) => {
-    useAutoAdoptionSetupWizardStore.setState({ vpn_mfa_mode: mode });
-  };
-
   return (
     <WizardCard>
-      <InteractiveBlock
-        data-testid="mfa-disabled"
-        value={mfaMode === LocationMfaMode.Disabled}
-        onClick={() => setMfaMode(LocationMfaMode.Disabled)}
-        title={m.initial_setup_auto_adoption_mfa_option_disabled_title()}
+      <Toggle
+        active={mfaEnabled}
+        onClick={() =>
+          useAutoAdoptionSetupWizardStore.setState({ mfa_enabled: !mfaEnabled })
+        }
+        label={m.add_location_mfa_toggle_label()}
+        testId="toggle-mfa"
       />
-      <SizedBox height={ThemeSpacing.Xl} />
-      <InteractiveBlock
-        data-testid="mfa-internal"
-        value={mfaMode === LocationMfaMode.Internal}
-        onClick={() => setMfaMode(LocationMfaMode.Internal)}
-        title={`Internal ${branding.productName} Multi-Factor Authentication`}
-        content={`Use MFA configured directly in each user's ${branding.productName} profile.`}
-      >
-        {mfaMode === LocationMfaMode.Internal && (
-          <>
-            <SizedBox height={ThemeSpacing.Sm} />
-            <InfoBanner
-              variant="warning"
-              icon="info-outlined"
-              text={`After completing the initial ${branding.productName} setup, you will be redirected to configure MFA for your administrator account.`}
-            />
-          </>
-        )}
-      </InteractiveBlock>
-      <SizedBox height={ThemeSpacing.Xl} />
-      <InteractiveBlock
-        data-testid="mfa-external"
-        value={false}
-        disabled
-        title={m.initial_setup_auto_adoption_mfa_option_external_title()}
-        content={m.initial_setup_auto_adoption_mfa_option_external_content()}
-        badge={businessBadgeProps}
-      ></InteractiveBlock>
+      <SizedBox height={ThemeSpacing.Xl2} />
       <Controls>
         <Button
           text={m.initial_setup_controls_back()}
@@ -75,7 +42,7 @@ export const AutoAdoptionMfaSetupStep = () => {
           <Button
             text={m.initial_setup_controls_continue()}
             onClick={() => {
-              setMfaSettings({ vpn_mfa_mode: mfaMode });
+              setMfaSettings({ mfa_enabled: mfaEnabled });
             }}
             loading={isPending}
           />
