@@ -320,7 +320,7 @@ pub fn build_webapp(
             .route("/auth/webauthn/start", post(webauthn_start))
             .route("/auth/webauthn", post(webauthn_end))
             .route("/auth/totp/init", post(totp_secret))
-            .route("/auth/totp", post(mfa_enable))
+            .route("/auth/totp", post(totp_enable))
             .route("/auth/totp/verify", post(totp_code))
             .route("/auth/email/init", post(email_mfa_init))
             .route(

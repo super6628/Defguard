@@ -295,12 +295,17 @@ impl From<WebError> for ApiResponse {
                     StatusCode::BAD_REQUEST,
                 ),
                 AclError::DestinationUsedByRulesError(id) => Self::new(
-                    json!({"msg": format!("Destination {id} is used by some existing ACL rules")}),
+                    json!({
+                        "msg": format!("Destination {id} is used by some existing ACL rules")
+                    }),
                     StatusCode::BAD_REQUEST,
                 ),
                 AclError::DbError(_) | AclError::FirewallError(_) => {
                     error!("{err}");
-                    Self::new(json!({"msg": "Internal server error"}), StatusCode::INTERNAL_SERVER_ERROR)
+                    Self::new(
+                        json!({"msg": "Internal server error"}),
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                    )
                 }
                 AclError::CannotModifyDeletedRuleError(id) => Self::new(
                     json!({"msg": format!("Cannot modify deleted ACL rule {id}")}),
@@ -311,48 +316,420 @@ impl From<WebError> for ApiResponse {
                     StatusCode::BAD_REQUEST,
                 ),
             },
-            WebError::Http(status) => Self::new(json!({"msg": status.canonical_reason().unwrap_or_default()}), status),
-            WebError::TooManyLoginAttempts(_) => Self::new(json!({"msg": "Too many login attempts"}), StatusCode::TOO_MANY_REQUESTS),
-            WebError::PubkeyValidation(msg) | WebError::PubkeyExists(msg) | WebError::BadRequest(msg) => Self::new(json!({"msg": msg}), StatusCode::BAD_REQUEST),
-            WebError::NetworkFull(msg) => Self::new(json!({"msg": msg, "code": WebErrorCode::NetworkFull}), StatusCode::BAD_REQUEST),
-            WebError::UserGroupsNotSynced(msg) => Self::new(json!({"msg": msg, "code": WebErrorCode::UserGroupsNotSynced}), StatusCode::UNAUTHORIZED),
-            WebError::LicenseLimitReached(msg) => Self::new(json!({"msg": msg, "code": WebErrorCode::LicenseLimitReached}), StatusCode::FORBIDDEN),
-            WebError::CertMissingCertPem => Self::new(json!({"msg": web_error.to_string(), "code": WebErrorCode::CertMissingCertPem}), StatusCode::BAD_REQUEST),
-            WebError::CertMissingKeyPem => Self::new(json!({"msg": web_error.to_string(), "code": WebErrorCode::CertMissingKeyPem}), StatusCode::BAD_REQUEST),
-            WebError::CertInvalidCertOrKey => Self::new(json!({"msg": web_error.to_string(), "code": WebErrorCode::CertInvalidCertOrKey}), StatusCode::BAD_REQUEST),
-            WebError::CertInvalidValidityPeriod => Self::new(json!({"msg": web_error.to_string(), "code": WebErrorCode::CertInvalidValidityPeriod}), StatusCode::BAD_REQUEST),
-            WebError::CertExpired => Self::new(json!({"msg": web_error.to_string(), "code": WebErrorCode::CertExpired}), StatusCode::BAD_REQUEST),
-            WebError::CertNotYetValid => Self::new(json!({"msg": web_error.to_string(), "code": WebErrorCode::CertNotYetValid}), StatusCode::BAD_REQUEST),
-            WebError::CertParseError(msg) => Self::new(json!({"msg": msg, "code": WebErrorCode::CertParseError}), StatusCode::BAD_REQUEST),
-            WebError::SmtpNotConfigured => Self::new(json!({"msg": web_error.to_string(), "code": WebErrorCode::SmtpNotConfigured}), StatusCode::SERVICE_UNAVAILABLE),
-            WebError::MailSendFailed => Self::new(json!({"msg": web_error.to_string(), "code": WebErrorCode::MailSendFailed}), StatusCode::SERVICE_UNAVAILABLE),
+            WebError::Http(status) => {
+                error!("{status}");
+                Self::new(
+                    json!({"msg": status.canonical_reason().unwrap_or_default()}),
+                    status,
+                )
+            }
+            WebError::TooManyLoginAttempts(_) => Self::new(
+                json!({"msg": "Too many login attempts"}),
+                StatusCode::TOO_MANY_REQUESTS,
+            ),
+            WebError::PubkeyValidation(msg)
+            | WebError::PubkeyExists(msg)
+            | WebError::BadRequest(msg) => {
+                error!(msg);
+                Self::new(json!({"msg": msg}), StatusCode::BAD_REQUEST)
+            }
+            WebError::NetworkFull(msg) => {
+                warn!(msg);
+                Self::new(
+                    json!({"msg": msg, "code": WebErrorCode::NetworkFull}),
+                    StatusCode::BAD_REQUEST,
+                )
+            }
+            WebError::UserGroupsNotSynced(msg) => {
+                warn!(msg);
+                Self::new(
+                    json!({"msg": msg, "code": WebErrorCode::UserGroupsNotSynced}),
+                    StatusCode::UNAUTHORIZED,
+                )
+            }
+            WebError::LicenseLimitReached(msg) => {
+                warn!(msg);
+                Self::new(
+                    json!({"msg": msg, "code": WebErrorCode::LicenseLimitReached}),
+                    StatusCode::FORBIDDEN,
+                )
+            }
+            WebError::CertMissingCertPem => Self::new(
+                json!({"msg": web_error.to_string(), "code": WebErrorCode::CertMissingCertPem}),
+                StatusCode::BAD_REQUEST,
+            ),
+            WebError::CertMissingKeyPem => Self::new(
+                json!({"msg": web_error.to_string(), "code": WebErrorCode::CertMissingKeyPem}),
+                StatusCode::BAD_REQUEST,
+            ),
+            WebError::CertInvalidCertOrKey => Self::new(
+                json!({"msg": web_error.to_string(), "code": WebErrorCode::CertInvalidCertOrKey}),
+                StatusCode::BAD_REQUEST,
+            ),
+            WebError::CertInvalidValidityPeriod => Self::new(
+                json!({"msg": web_error.to_string(), "code": WebErrorCode::CertInvalidValidityPeriod}),
+                StatusCode::BAD_REQUEST,
+            ),
+            WebError::CertExpired => Self::new(
+                json!({"msg": web_error.to_string(), "code": WebErrorCode::CertExpired}),
+                StatusCode::BAD_REQUEST,
+            ),
+            WebError::CertNotYetValid => Self::new(
+                json!({"msg": web_error.to_string(), "code": WebErrorCode::CertNotYetValid}),
+                StatusCode::BAD_REQUEST,
+            ),
+            WebError::CertParseError(msg) => {
+                warn!(msg);
+                Self::new(
+                    json!({"msg": msg, "code": WebErrorCode::CertParseError}),
+                    StatusCode::BAD_REQUEST,
+                )
+            }
+            WebError::SmtpNotConfigured => Self::new(
+                json!({"msg": web_error.to_string(), "code": WebErrorCode::SmtpNotConfigured}),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
+            WebError::MailSendFailed => Self::new(
+                json!({"msg": web_error.to_string(), "code": WebErrorCode::MailSendFailed}),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
             WebError::TemplateError(err) => {
                 error!("Template error: {err}");
-                Self::new(json!({"msg": "Internal server error"}), StatusCode::INTERNAL_SERVER_ERROR)
+                Self::new(
+                    json!({"msg": "Internal server error"}),
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                )
             }
             WebError::LicenseError(err) => match err {
-                LicenseError::DecodeError(msg) => Self::new(json!({"msg": msg}), StatusCode::BAD_REQUEST),
-                LicenseError::SignatureMismatch => Self::new(json!({"msg": "License signature doesn't match its content"}), StatusCode::BAD_REQUEST),
-                LicenseError::InvalidSignature => Self::new(json!({"msg": "License signature is malformed and couldn't be read"}), StatusCode::BAD_REQUEST),
-                LicenseError::LicenseNotFound => Self::new(json!({"msg": "License not found"}), StatusCode::NOT_FOUND),
-                LicenseError::LicenseExpired => Self::new(json!({"msg": "License expired"}), StatusCode::FORBIDDEN),
-                LicenseError::LicenseNotYetValid => Self::new(json!({"msg": "License not yet valid"}), StatusCode::FORBIDDEN),
-                LicenseError::DbError(_) => Self::new(json!({"msg": "Internal server error"}), StatusCode::INTERNAL_SERVER_ERROR),
+                LicenseError::DecodeError(msg) => {
+                    warn!(msg);
+                    Self::new(json!({"msg": msg}), StatusCode::BAD_REQUEST)
+                }
+                LicenseError::SignatureMismatch => {
+                    let msg = "License signature doesn't match its content";
+                    warn!(msg);
+                    Self::new(json!({"msg": msg}), StatusCode::BAD_REQUEST)
+                }
+                LicenseError::InvalidSignature => {
+                    let msg = "License signature is malformed and couldn't be read";
+                    warn!(msg);
+                    Self::new(json!({"msg": msg}), StatusCode::BAD_REQUEST)
+                }
+                LicenseError::LicenseNotFound => {
+                    let msg = "License not found";
+                    warn!(msg);
+                    Self::new(json!({"msg": msg}), StatusCode::NOT_FOUND)
+                }
+                _ => {
+                    error!("License error: {err}");
+                    Self::new(
+                        json!({"msg": "Internal server error"}),
+                        StatusCode::FORBIDDEN,
+                    )
+                }
+            },
+            WebError::IpNetwork(err) => match err {
+                IpNetworkError::InvalidAddr(msg) | IpNetworkError::InvalidCidrFormat(msg) => {
+                    warn!(msg);
+                    Self::new(json!({"msg": msg}), StatusCode::BAD_REQUEST)
+                }
+                IpNetworkError::InvalidPrefix => {
+                    warn!("Invalid prefix");
+                    Self::new(json!({"msg": "invalid prefix"}), StatusCode::BAD_REQUEST)
+                }
             },
         }
     }
 }
 
+impl IntoResponse for WebError {
+    fn into_response(self) -> Response {
+        ApiResponse::from(self).into_response()
+    }
+}
+
 impl IntoResponse for ApiResponse {
     fn into_response(self) -> Response {
-        (self.status, Json(self.json)).into_response()
+        let mut response = Json(self.json).into_response();
+        *response.status_mut() = self.status;
+        response
     }
 }
 
 pub type ApiResult = Result<ApiResponse, WebError>;
 
-impl FromRef<AppState> for PgPool {
-    fn from_ref(state: &AppState) -> Self {
-        state.pool.clone()
+#[derive(Deserialize, Serialize, ToSchema)]
+pub struct Auth {
+    username: String,
+    password: String,
+}
+
+impl Auth {
+    #[must_use]
+    pub fn new<S: Into<String>>(username: S, password: S) -> Self {
+        Self {
+            username: username.into(),
+            password: password.into(),
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize, ToSchema)]
+pub struct AuthTotp {
+    pub secret: String,
+}
+
+impl AuthTotp {
+    #[must_use]
+    pub fn new<S: Into<String>>(secret: S) -> Self {
+        Self {
+            secret: secret.into(),
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize, ToSchema)]
+pub struct AuthCode {
+    code: String,
+}
+
+impl AuthCode {
+    #[must_use]
+    pub fn new<S: Into<String>>(code: S) -> Self {
+        Self { code: code.into() }
+    }
+}
+
+#[derive(Deserialize, Serialize, ToSchema)]
+pub struct GroupInfo {
+    pub id: Id,
+    pub name: String,
+    pub members: Vec<String>,
+    pub vpn_locations: Vec<String>,
+    pub is_admin: bool,
+}
+
+impl GroupInfo {
+    #[must_use]
+    pub fn new<S: Into<String>>(
+        id: Id,
+        name: S,
+        members: Vec<String>,
+        vpn_locations: Vec<String>,
+        is_admin: bool,
+    ) -> Self {
+        Self {
+            id,
+            name: name.into(),
+            members,
+            vpn_locations,
+            is_admin,
+        }
+    }
+}
+
+/// Dedicated `GroupInfo` variant for group modification operations.
+#[derive(Deserialize, Serialize, ToSchema)]
+pub struct EditGroupInfo {
+    pub name: String,
+    pub members: Vec<String>,
+    pub is_admin: bool,
+}
+
+impl EditGroupInfo {
+    #[must_use]
+    pub fn new<S: Into<String>>(name: S, members: Vec<String>, is_admin: bool) -> Self {
+        Self {
+            name: name.into(),
+            members,
+            is_admin,
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize, ToSchema)]
+pub struct Username {
+    pub username: String,
+}
+
+#[derive(Deserialize, Serialize, ToSchema)]
+pub struct AddUserData {
+    pub username: String,
+    pub last_name: String,
+    pub first_name: String,
+    pub email: String,
+    pub phone: Option<String>,
+    pub password: Option<String>,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct StartEnrollmentRequest {
+    #[serde(default)]
+    pub send_enrollment_notification: bool,
+    pub email: Option<String>,
+    pub token_expiration_time: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, ToSchema)]
+pub struct PasswordChangeSelf {
+    pub old_password: String,
+    pub new_password: String,
+}
+
+#[derive(Deserialize, Serialize, ToSchema)]
+pub struct PasswordChange {
+    pub new_password: String,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct WebAuthnRegistration {
+    pub name: String,
+    #[schema(value_type = Object)]
+    pub rpkc: RegisterPublicKeyCredential,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct RecoveryCode {
+    code: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct RecoveryCodes {
+    codes: Option<Vec<String>>,
+}
+
+impl RecoveryCodes {
+    #[must_use]
+    pub fn new(codes: Option<Vec<String>>) -> Self {
+        Self { codes }
+    }
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct WebHookData {
+    pub url: String,
+    pub description: String,
+    pub token: String,
+    pub enabled: bool,
+    pub on_user_created: bool,
+    pub on_user_deleted: bool,
+    pub on_user_modified: bool,
+    pub on_hwkey_provision: bool,
+}
+
+impl From<WebHookData> for WebHook {
+    fn from(data: WebHookData) -> Self {
+        Self {
+            id: NoId,
+            url: data.url,
+            description: data.description,
+            token: data.token,
+            enabled: data.enabled,
+            on_user_created: data.on_user_created,
+            on_user_deleted: data.on_user_deleted,
+            on_user_modified: data.on_user_modified,
+            on_hwkey_provision: data.on_hwkey_provision,
+        }
+    }
+}
+
+/// Return type needed for knowing if a user came from OpenID flow.
+/// If so, fill in the optional URL field to redirect him later.
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct AuthResponse {
+    pub user: UserInfo,
+    pub url: Option<String>,
+}
+
+/// Try to fetch [`User`] if the username is of the currently logged in user, or
+/// the logged in user is an admin.
+pub async fn user_for_admin_or_self(
+    pool: &PgPool,
+    session: &SessionInfo,
+    username: &str,
+) -> Result<User<Id>, WebError> {
+    if session.user.username == username || session.is_admin {
+        debug!(
+            "The user meets one or both of these conditions: \
+            1) the user from the current session has admin privileges, \
+            2) the user performs this operation on themself."
+        );
+        if let Some(user) = User::find_by_username(pool, username).await? {
+            debug!("User {} has been found in database.", user.username);
+            Ok(user)
+        } else {
+            debug!("User with {username} does not exist in database.");
+            Err(WebError::ObjectNotFound(format!(
+                "user {username} not found"
+            )))
+        }
+    } else {
+        debug!(
+            "User from the current session doesn't have enough privileges to do this operation."
+        );
+        Err(WebError::Forbidden("requires privileged access"))
+    }
+}
+
+/// Try to fetch [`Device'] if the device.id is of the currently logged in user, or
+/// the logged in user is an admin.
+pub async fn device_for_admin_or_self<'e, E: sqlx::PgExecutor<'e>>(
+    executor: E,
+    session: &SessionInfo,
+    id: Id,
+) -> Result<Device<Id>, WebError> {
+    let fetch = if session.is_admin {
+        Device::find_by_id(executor, id).await
+    } else {
+        Device::find_by_id_and_username(executor, id, &session.user.username).await
+    }?;
+
+    match fetch {
+        Some(device) => Ok(device),
+        None => Err(WebError::ObjectNotFound(format!(
+            "device id {id} not found"
+        ))),
+    }
+}
+
+/// Validate name provided by user
+#[must_use]
+pub fn validate_name(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let allowed_symbols = [' ', '-', '_', '.', '(', ')', ':', '/'];
+    name.chars()
+        .all(|c| c.is_alphanumeric() || allowed_symbols.contains(&c))
+}
+
+impl<S> FromRequestParts<S> for ApiRequestContext
+where
+    S: Send + Sync,
+    AppState: FromRef<S>,
+{
+    type Rejection = WebError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let TypedHeader(user_agent) = TypedHeader::<UserAgent>::from_request_parts(parts, state)
+            .await
+            .map_err(|_| WebError::BadRequest("Missing UserAgent header".to_owned()))?;
+        let ClientIpAddr(ip_addr) = ClientIpAddr::from_request_parts(parts, state)
+            .await
+            .map_err(|_| WebError::BadRequest("Missing client IP".to_owned()))?;
+        let session = if let Some(cached) = parts.extensions.get::<SessionInfo>() {
+            cached.clone()
+        } else {
+            SessionInfo::from_request_parts(parts, state).await?
+        };
+
+        // Store session info into request extensions so future extractors can use it
+        parts.extensions.insert(session.clone());
+        Ok(Self::new(
+            session.user.id,
+            session.user.username,
+            ip_addr,
+            user_agent.to_string(),
+        ))
     }
 }
