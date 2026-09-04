@@ -6,7 +6,11 @@ use axum::{
 };
 use serde::Serialize;
 
-use crate::appstate::AppState;
+use crate::{
+    appstate::AppState,
+    auth::{AdminRole, SessionInfo},
+    grpc::smetric_config_sync::notify_config_changed,
+};
 
 use super::service::{
     CreatePolicy, CreateRule, PolicySummary, PublishedPolicy, ServiceError, add_rule, create_policy,
@@ -41,11 +45,17 @@ impl IntoResponse for ApiError {
     }
 }
 
-pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<PolicySummary>>, ApiError> {
+pub async fn list(
+    _admin: AdminRole,
+    _session: SessionInfo,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<PolicySummary>>, ApiError> {
     Ok(Json(list_policies(&state.pool).await?))
 }
 
 pub async fn create(
+    _admin: AdminRole,
+    _session: SessionInfo,
     State(state): State<AppState>,
     Json(input): Json<CreatePolicy>,
 ) -> Result<(StatusCode, Json<PolicySummary>), ApiError> {
@@ -54,6 +64,8 @@ pub async fn create(
 }
 
 pub async fn get(
+    _admin: AdminRole,
+    _session: SessionInfo,
     State(state): State<AppState>,
     Path(policy_id): Path<i64>,
 ) -> Result<Json<Policy>, ApiError> {
@@ -61,6 +73,8 @@ pub async fn get(
 }
 
 pub async fn remove(
+    _admin: AdminRole,
+    _session: SessionInfo,
     State(state): State<AppState>,
     Path(policy_id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
@@ -69,6 +83,8 @@ pub async fn remove(
 }
 
 pub async fn create_rule(
+    _admin: AdminRole,
+    _session: SessionInfo,
     State(state): State<AppState>,
     Path(policy_id): Path<i64>,
     Json(input): Json<CreateRule>,
@@ -78,6 +94,8 @@ pub async fn create_rule(
 }
 
 pub async fn validate(
+    _admin: AdminRole,
+    _session: SessionInfo,
     State(state): State<AppState>,
     Path(policy_id): Path<i64>,
 ) -> Result<Json<Policy>, ApiError> {
@@ -85,8 +103,15 @@ pub async fn validate(
 }
 
 pub async fn publish(
+    _admin: AdminRole,
+    _session: SessionInfo,
     State(state): State<AppState>,
     Path(policy_id): Path<i64>,
 ) -> Result<Json<PublishedPolicy>, ApiError> {
-    Ok(Json(publish_policy(&state.pool, policy_id).await?))
+    let published = publish_policy(&state.pool, policy_id).await?;
+    notify_config_changed(format!(
+        "smetric_acl:policy:{}:revision:{}",
+        published.policy_id, published.revision
+    ));
+    Ok(Json(published))
 }
