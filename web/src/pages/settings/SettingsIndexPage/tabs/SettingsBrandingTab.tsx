@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import api from '../../../../shared/api/api';
 import {
   type BrandingConfig,
   branding,
+  hydrateBrandingFromServer,
   resetBranding,
   saveBranding,
 } from '../../../../shared/branding/branding';
@@ -14,7 +16,8 @@ const fields: Array<{ key: keyof BrandingConfig; label: string; placeholder?: st
   { key: 'supportEmail', label: 'Support email' },
   { key: 'supportUrl', label: 'Support URL' },
   { key: 'documentationUrl', label: 'Documentation URL' },
-  { key: 'logoUrl', label: 'Logo URL', placeholder: '/branding/logo.svg' },
+  { key: 'logoUrl', label: 'Main / login logo URL', placeholder: '/svg/logo.svg' },
+  { key: 'navLogoUrl', label: 'Navigation logo URL', placeholder: '/svg/nav-logo.svg' },
   { key: 'logoDarkUrl', label: 'Dark logo URL', placeholder: '/branding/logo-dark.svg' },
   { key: 'faviconUrl', label: 'Favicon URL', placeholder: '/branding/favicon.ico' },
   { key: 'primaryColor', label: 'Primary color', placeholder: '#3961DB' },
@@ -27,31 +30,49 @@ const fields: Array<{ key: keyof BrandingConfig; label: string; placeholder?: st
 
 export const SettingsBrandingTab = () => {
   const [form, setForm] = useState<BrandingConfig>({ ...branding });
-  const [saved, setSaved] = useState(false);
+  const [status, setStatus] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    void hydrateBrandingFromServer().then((current) => setForm({ ...current }));
+  }, []);
 
   const update = (key: keyof BrandingConfig, value: string) => {
-    setSaved(false);
+    setStatus('');
     setForm((current) => ({ ...current, [key]: value }));
   };
 
-  const onSave = () => {
-    saveBranding(form);
-    setSaved(true);
+  const onSave = async () => {
+    setSaving(true);
+    setStatus('');
+    try {
+      await api.settings.patchSettings({
+        instance_name: form.productName,
+        main_logo_url: form.logoUrl,
+        nav_logo_url: form.navLogoUrl || form.logoUrl,
+      });
+      saveBranding(form);
+      setStatus('Saved for this Defguard Core instance. Other browsers will receive the shared name and logos.');
+    } catch {
+      setStatus('Core save failed. No server branding changes were applied.');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const onReset = () => {
-    setForm(resetBranding());
-    setSaved(false);
+  const onReset = async () => {
+    const next = resetBranding();
+    setForm(next);
+    setStatus('Deployment defaults restored locally. Save to publish them to Core.');
   };
 
   return (
     <div style={{ paddingTop: 24, maxWidth: 980 }}>
       <h2 style={{ marginBottom: 8 }}>White-label branding</h2>
       <p style={{ marginBottom: 24 }}>
-        Customize the product identity shown to users. Runtime branding.js remains the deployment default;
-        values saved here override it in this browser until server-side persistence is enabled.
+        Product name and main/navigation logos are stored in Core and shared with every browser.
+        Additional presentation fields remain deployment/browser overrides until their server schema is added.
       </p>
-
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(280px, 0.8fr)', gap: 32 }}>
         <div style={{ display: 'grid', gap: 16 }}>
           {fields.map(({ key, label, placeholder }) => (
@@ -65,34 +86,22 @@ export const SettingsBrandingTab = () => {
               />
             </label>
           ))}
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <button type="button" onClick={onSave} style={{ padding: '10px 18px', cursor: 'pointer' }}>
-              Save branding
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button type="button" disabled={saving} onClick={() => void onSave()} style={{ padding: '10px 18px', cursor: 'pointer' }}>
+              {saving ? 'Saving…' : 'Save branding'}
             </button>
-            <button type="button" onClick={onReset} style={{ padding: '10px 18px', cursor: 'pointer' }}>
+            <button type="button" disabled={saving} onClick={() => void onReset()} style={{ padding: '10px 18px', cursor: 'pointer' }}>
               Reset to deployment defaults
             </button>
-            {saved && <span>Saved. Refresh to update all branded components.</span>}
+            {status && <span>{status}</span>}
           </div>
         </div>
-
         <aside style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 24, alignSelf: 'start' }}>
-          <div style={{ fontSize: 12, textTransform: 'uppercase', opacity: 0.65, marginBottom: 16 }}>
-            Live preview
-          </div>
-          {form.logoUrl ? (
-            <img src={form.logoUrl} alt={form.productName} style={{ maxWidth: '100%', maxHeight: 60 }} />
-          ) : (
-            <div style={{ fontSize: 22, fontWeight: 700 }}>{form.shortName || form.companyName}</div>
-          )}
+          <div style={{ fontSize: 12, textTransform: 'uppercase', opacity: 0.65, marginBottom: 16 }}>Live preview</div>
+          {form.logoUrl ? <img src={form.logoUrl} alt={form.productName} style={{ maxWidth: '100%', maxHeight: 60 }} /> : <div style={{ fontSize: 22, fontWeight: 700 }}>{form.shortName || form.companyName}</div>}
           <h3 style={{ marginTop: 28 }}>{form.loginTitle || `Welcome to ${form.productName}`}</h3>
           <p>{form.loginSubtitle || 'Secure remote network access'}</p>
-          <button
-            type="button"
-            style={{ marginTop: 18, padding: '10px 18px', borderRadius: 6, border: 0, background: form.primaryColor || '#3961DB', color: '#fff' }}
-          >
-            Sign in
-          </button>
+          <button type="button" style={{ marginTop: 18, padding: '10px 18px', borderRadius: 6, border: 0, background: form.primaryColor || '#3961DB', color: '#fff' }}>Sign in</button>
           <hr style={{ margin: '28px 0 16px', border: 0, borderTop: '1px solid #e5e7eb' }} />
           <small>Copyright © {new Date().getFullYear()} {form.copyrightName}</small>
         </aside>
