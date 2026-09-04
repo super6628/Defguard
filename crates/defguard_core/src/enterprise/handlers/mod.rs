@@ -6,32 +6,32 @@ pub mod enterprise_settings;
 pub mod smetric_microsoft_oidc;
 
 // Keep the upstream modules compiled under compatibility names because internal
-// directory-sync and desktop-MFA code still consumes helper functions from them.
-// The router-facing module names below expose the independent S-Metric
-// authentication/provider handlers without exporting them outside this crate.
+// directory-sync, proxy-manager, setup, and desktop-MFA code still consumes helper
+// functions from them. The public compatibility modules below expose our independent
+// S-Metric login/provider handlers while forwarding non-router helpers to upstream.
 #[path = "openid_login.rs"]
 pub mod upstream_openid_login;
 #[path = "openid_providers.rs"]
 pub mod upstream_openid_providers;
 
-pub(crate) mod openid_login {
-    pub(crate) use super::smetric_microsoft_oidc::{auth_callback, get_auth_info};
-    pub(crate) use super::upstream_openid_login::{extract_state_data, user_from_claims};
-    pub(crate) use super::upstream_openid_login::prune_username;
-
-    // Preserve the generated OpenAPI path descriptors expected by openapi.rs.
-    pub(crate) use super::upstream_openid_login::{__path_auth_callback, __path_get_auth_info};
+pub mod openid_login {
+    pub use super::smetric_microsoft_oidc::{auth_callback, get_auth_info};
+    pub use super::upstream_openid_login::{
+        SELECT_ACCOUNT_SUPPORTED_PROVIDERS, __path_auth_callback, __path_get_auth_info,
+        build_state, make_oidc_client, prune_username, user_from_claims,
+    };
+    pub(crate) use super::upstream_openid_login::extract_state_data;
 }
 
-pub(crate) mod openid_providers {
-    pub(crate) use super::smetric_microsoft_oidc::{
+pub mod openid_providers {
+    pub use super::smetric_microsoft_oidc::{
         add_openid_provider, delete_openid_provider, get_current_openid_provider,
         get_openid_provider, list_openid_providers, modify_openid_provider,
         test_dirsync_connection,
     };
 
-    // Preserve the generated OpenAPI path descriptors expected by openapi.rs.
-    pub(crate) use super::upstream_openid_providers::{
+    // Preserve generated OpenAPI path descriptors expected by openapi.rs.
+    pub use super::upstream_openid_providers::{
         __path_add_openid_provider, __path_delete_openid_provider,
         __path_get_current_openid_provider, __path_get_openid_provider,
         __path_list_openid_providers, __path_modify_openid_provider,
@@ -212,7 +212,6 @@ pub async fn check_enterprise_info(_admin: AdminRole, _session: SessionInfo) -> 
             "tier": license.tier,
             "support_type": license.support_type,
             "limits": limits_info,
-            // effective set of enabled features (tier-granted plus additive flags)
             "features": features,
             "customer_id": license.customer_id,
         })
@@ -230,8 +229,6 @@ where
 {
     type Rejection = WebError;
 
-    /// Returns an error if current session user is not allowed to manage devices.
-    /// The permission is defined by [`EnterpriseSettings::admin_device_management`] setting.
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let appstate = AppState::from_ref(state);
         let session = SessionInfo::from_request_parts(parts, state).await?;
