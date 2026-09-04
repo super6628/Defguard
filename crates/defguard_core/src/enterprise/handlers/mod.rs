@@ -3,7 +3,13 @@ pub mod activity_log_stream;
 pub mod api_tokens;
 pub mod device_posture;
 pub mod enterprise_settings;
+// S-Metric Secure provides its own external OIDC implementation. Keep the upstream
+// enterprise source files intact, but bind the existing router module names to our
+// independently implemented Microsoft OIDC handler so lib.rs does not need a risky
+// whole-file rewrite.
+#[path = "smetric_microsoft_oidc.rs"]
 pub mod openid_login;
+#[path = "smetric_microsoft_oidc.rs"]
 pub mod openid_providers;
 pub mod smetric_microsoft_oidc;
 
