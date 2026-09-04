@@ -1,8 +1,9 @@
 use axum::{
-    Json,
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
+    routing::{get, post},
 };
 use serde::Serialize;
 
@@ -17,6 +18,15 @@ use super::service::{
     delete_policy, list_policies, load_policy, publish_policy, validate_policy,
 };
 use super::{Policy, Rule};
+
+pub fn router() -> Router<AppState> {
+    Router::new()
+        .route("/policies", get(list).post(create))
+        .route("/policies/{policy_id}", get(get).delete(remove))
+        .route("/policies/{policy_id}/rules", post(create_rule))
+        .route("/policies/{policy_id}/validate", post(validate))
+        .route("/policies/{policy_id}/publish", post(publish))
+}
 
 #[derive(Debug, Serialize)]
 pub struct ErrorBody {
