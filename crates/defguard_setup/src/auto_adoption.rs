@@ -44,10 +44,10 @@ use tonic::{
 };
 use tracing::{debug, error, info, warn};
 
-const TOKEN_CLIENT_ID: &str = "Defguard Core";
+const TOKEN_CLIENT_ID: &str = "S-Metric Secure Core";
 const STARTUP_ADOPTION_TIMEOUT: Duration = Duration::from_secs(10);
-const AUTO_ADOPTION_CA_COMMON_NAME: &str = "Defguard Root CA";
-const AUTO_ADOPTION_CA_EMAIL: &str = "root-ca@defguard.local";
+const AUTO_ADOPTION_CA_COMMON_NAME: &str = "S-Metric Secure Root CA";
+const AUTO_ADOPTION_CA_EMAIL: &str = "root-ca@smetric.local";
 const AUTO_ADOPTION_CA_VALIDITY_DAYS: u32 = 3650;
 const GATEWAY_NAME: &str = "Gateway";
 const PROXY_NAME: &str = "Edge";
