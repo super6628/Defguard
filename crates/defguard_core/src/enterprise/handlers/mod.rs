@@ -75,6 +75,8 @@ struct LimitInfo {
 
 #[derive(Serialize)]
 struct LicenseLimitsInfo {
+    // Retained for API compatibility. S-Metric Secure reports the real active-user count but
+    // exposes no licensed user ceiling; `limit` is u32::MAX rather than an enforcement value.
     users: LimitInfo,
     locations: LimitInfo,
     user_devices: Option<LimitInfo>,
@@ -146,7 +148,7 @@ where
                 "tier": "Enterprise",
                 "support_type": "DirectEnterprise",
                 "limits": {
-                    "users": {"current": 12, "limit": 100},
+                    "users": {"current": 12, "limit": 4294967295},
                     "locations": {"current": 2, "limit": 10},
                     "user_devices": null,
                     "network_devices": null,
@@ -175,8 +177,8 @@ pub async fn check_enterprise_info(_admin: AdminRole, _session: SessionInfo) -> 
                 limit: limits.locations,
             },
             users: LimitInfo {
-                current: counts.user(),
-                limit: limits.users,
+                current: counts.actual_user(),
+                limit: u32::MAX,
             },
             devices: limits.network_devices.map_or(
                 Some(LimitInfo {
