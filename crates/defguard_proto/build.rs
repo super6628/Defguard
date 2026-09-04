@@ -26,10 +26,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                 "../../proto/enterprise/v2/firewall/firewall.proto",
                 "../../proto/enterprise/v2/posture/posture.proto",
                 "../../proto/common/client_types.proto",
+                "proto/smetric_config_sync.proto",
             ],
-            &["../../proto"],
+            &["../../proto", "proto"],
         )?;
 
     println!("cargo:rerun-if-changed=../../proto");
+    println!("cargo:rerun-if-changed=proto/smetric_config_sync.proto");
     Ok(())
 }
