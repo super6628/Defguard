@@ -34,10 +34,7 @@ const WelcomePageContent = () => (
   <div className="left">
     <Divider spacing={ThemeSpacing.Xl2} />
     <Controls>
-      <Button
-        text={m.initial_setup_welcome_button_configure()}
-        onClick={handleStartWizard}
-      />
+      <Button text="Configure S-Metric Secure" onClick={handleStartWizard} />
     </Controls>
   </div>
 );
@@ -155,15 +152,16 @@ export const SetupPage = () => {
   return (
     <WizardPage
       activeStep={activeStep}
-      subtitle={m.initial_setup_wizard_subtitle()}
-      title={m.initial_setup_wizard_title()}
+      subtitle="This wizard will guide you through the initial configuration of your S-Metric Secure instance."
+      title="Initial Setup Wizard"
       steps={stepsConfig}
       id="setup-wizard"
       videoGuidePlacementKey="initialSetupWizard"
       isOnWelcomePage={isOnWelcomePage}
       welcomePageConfig={{
-        title: m.initial_setup_welcome_title(),
-        subtitle: m.initial_setup_welcome_subtitle(),
+        title: 'Welcome to S-Metric Secure!',
+        subtitle:
+          'This wizard walks you through the steps to configure your S-Metric Secure instance, connect all necessary components (Edge, Gateway), and finally set up a VPN Location.',
         content: <WelcomePageContent />,
         media: <img src={worldMap} alt="World map" />,
       }}
