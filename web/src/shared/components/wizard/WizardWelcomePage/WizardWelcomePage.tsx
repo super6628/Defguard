@@ -68,12 +68,7 @@ export const WizardWelcomePage = ({
       </div>
       <div className="footer">
         <p>{m.footer_copyright({ year: dayjs().year() })}</p>
-        <p>
-          {m.initial_setup_wizard_footer_support_text()}{' '}
-          <a href="mailto:support@defguard.net" className="mail">
-            support@defguard.net
-          </a>
-        </p>
+        <p>S-Metric Secure</p>
       </div>
     </div>
   );
