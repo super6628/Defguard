@@ -3,15 +3,41 @@ pub mod activity_log_stream;
 pub mod api_tokens;
 pub mod device_posture;
 pub mod enterprise_settings;
-// S-Metric Secure provides its own external OIDC implementation. Keep the upstream
-// enterprise source files intact, but bind the existing router module names to our
-// independently implemented Microsoft OIDC handler so lib.rs does not need a risky
-// whole-file rewrite.
-#[path = "smetric_microsoft_oidc.rs"]
-pub mod openid_login;
-#[path = "smetric_microsoft_oidc.rs"]
-pub mod openid_providers;
 pub mod smetric_microsoft_oidc;
+
+// Keep the upstream modules compiled under compatibility names because internal
+// directory-sync and desktop-MFA code still consumes helper functions from them.
+// The public router-facing module names below expose the independent S-Metric
+// authentication/provider handlers instead.
+#[path = "openid_login.rs"]
+pub mod upstream_openid_login;
+#[path = "openid_providers.rs"]
+pub mod upstream_openid_providers;
+
+pub mod openid_login {
+    pub use super::smetric_microsoft_oidc::{auth_callback, get_auth_info};
+    pub(crate) use super::upstream_openid_login::{extract_state_data, user_from_claims};
+    pub use super::upstream_openid_login::prune_username;
+
+    // Preserve the generated OpenAPI path descriptors expected by openapi.rs.
+    pub use super::upstream_openid_login::{__path_auth_callback, __path_get_auth_info};
+}
+
+pub mod openid_providers {
+    pub use super::smetric_microsoft_oidc::{
+        add_openid_provider, delete_openid_provider, get_current_openid_provider,
+        get_openid_provider, list_openid_providers, modify_openid_provider,
+        test_dirsync_connection,
+    };
+
+    // Preserve the generated OpenAPI path descriptors expected by openapi.rs.
+    pub use super::upstream_openid_providers::{
+        __path_add_openid_provider, __path_delete_openid_provider,
+        __path_get_current_openid_provider, __path_get_openid_provider,
+        __path_list_openid_providers, __path_modify_openid_provider,
+        __path_test_dirsync_connection,
+    };
+}
 
 use std::marker::PhantomData;
 
