@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS white_label_branding (
     copyright_name TEXT NOT NULL DEFAULT 'S-Metric',
     support_email TEXT NOT NULL DEFAULT '',
     support_url TEXT NOT NULL DEFAULT '',
-    documentation_url TEXT NOT NULL DEFAULT 'https://docs.defguard.net/',
+    documentation_url TEXT NOT NULL DEFAULT '',
     logo_url TEXT NOT NULL DEFAULT '',
     nav_logo_url TEXT NOT NULL DEFAULT '',
     logo_dark_url TEXT NOT NULL DEFAULT '',
@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS white_label_branding (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Preserve an existing custom instance name/logo when migrating an established
+-- deployment, but do not import Defguard's stock branding into this fork.
 INSERT INTO white_label_branding (
     id,
     product_name,
@@ -28,9 +30,21 @@ INSERT INTO white_label_branding (
 )
 SELECT
     1,
-    COALESCE(NULLIF(instance_name, ''), 'S-Metric Secure'),
-    COALESCE(NULLIF(main_logo_url, ''), ''),
-    COALESCE(NULLIF(nav_logo_url, ''), '')
+    CASE
+        WHEN NULLIF(BTRIM(instance_name), '') IS NULL THEN 'S-Metric Secure'
+        WHEN LOWER(BTRIM(instance_name)) = 'defguard' THEN 'S-Metric Secure'
+        ELSE BTRIM(instance_name)
+    END,
+    CASE
+        WHEN NULLIF(BTRIM(main_logo_url), '') IS NULL THEN ''
+        WHEN LOWER(main_logo_url) LIKE '%defguard%' THEN ''
+        ELSE BTRIM(main_logo_url)
+    END,
+    CASE
+        WHEN NULLIF(BTRIM(nav_logo_url), '') IS NULL THEN ''
+        WHEN LOWER(nav_logo_url) LIKE '%defguard%' THEN ''
+        ELSE BTRIM(nav_logo_url)
+    END
 FROM settings
 WHERE id = 1
 ON CONFLICT (id) DO NOTHING;
