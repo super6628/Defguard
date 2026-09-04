@@ -30,6 +30,10 @@ pub mod openid_providers {
         test_dirsync_connection,
     };
 
+    // Preserve request DTO compatibility for existing integration tests and
+    // internal consumers while S-Metric uses its independent OIDC handlers.
+    pub use super::upstream_openid_providers::AddProviderData;
+
     // Preserve generated OpenAPI path descriptors expected by openapi.rs.
     pub use super::upstream_openid_providers::{
         __path_add_openid_provider, __path_delete_openid_provider,
