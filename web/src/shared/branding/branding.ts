@@ -19,9 +19,23 @@ export type BrandingConfig = {
 };
 
 type ServerBranding = {
-  instance_name?: string;
-  main_logo_url?: string;
-  nav_logo_url?: string;
+  company_name: string;
+  product_name: string;
+  short_name: string;
+  copyright_name: string;
+  support_email: string;
+  support_url: string;
+  documentation_url: string;
+  logo_url: string;
+  nav_logo_url: string;
+  logo_dark_url: string;
+  favicon_url: string;
+  primary_color: string;
+  login_title: string;
+  login_subtitle: string;
+  setup_title: string;
+  setup_subtitle: string;
+  setup_button_text: string;
 };
 
 const STORAGE_KEY = 'white-label-branding';
@@ -66,6 +80,46 @@ const readSavedBranding = (): Partial<BrandingConfig> => {
 const deploymentBranding = () =>
   typeof window !== 'undefined' ? (window.__WHITE_LABEL__ ?? {}) : {};
 
+const fromServerBranding = (server: ServerBranding): BrandingConfig => ({
+  companyName: server.company_name,
+  productName: server.product_name,
+  shortName: server.short_name,
+  copyrightName: server.copyright_name,
+  supportEmail: server.support_email,
+  supportUrl: server.support_url,
+  documentationUrl: server.documentation_url,
+  logoUrl: server.logo_url,
+  navLogoUrl: server.nav_logo_url,
+  logoDarkUrl: server.logo_dark_url,
+  faviconUrl: server.favicon_url,
+  primaryColor: server.primary_color,
+  loginTitle: server.login_title,
+  loginSubtitle: server.login_subtitle,
+  setupTitle: server.setup_title,
+  setupSubtitle: server.setup_subtitle,
+  setupButtonText: server.setup_button_text,
+});
+
+export const toServerBranding = (config: BrandingConfig): ServerBranding => ({
+  company_name: config.companyName,
+  product_name: config.productName,
+  short_name: config.shortName,
+  copyright_name: config.copyrightName,
+  support_email: config.supportEmail,
+  support_url: config.supportUrl,
+  documentation_url: config.documentationUrl,
+  logo_url: config.logoUrl,
+  nav_logo_url: config.navLogoUrl,
+  logo_dark_url: config.logoDarkUrl,
+  favicon_url: config.faviconUrl,
+  primary_color: config.primaryColor,
+  login_title: config.loginTitle,
+  login_subtitle: config.loginSubtitle,
+  setup_title: config.setupTitle,
+  setup_subtitle: config.setupSubtitle,
+  setup_button_text: config.setupButtonText,
+});
+
 export const branding: BrandingConfig = {
   ...brandingDefaults,
   ...deploymentBranding(),
@@ -94,22 +148,20 @@ export const applyBrandingToDocument = () => {
 export const hydrateBrandingFromServer = async () => {
   if (typeof window === 'undefined') return branding;
   try {
-    const response = await fetch('/api/v1/settings_essentials', {
+    const response = await fetch('/api/v1/branding', {
       credentials: 'include',
       headers: { Accept: 'application/json' },
     });
     if (!response.ok) return branding;
-    const server = (await response.json()) as ServerBranding;
-    const local = readSavedBranding();
+    const server = fromServerBranding((await response.json()) as ServerBranding);
     Object.assign(branding, {
       ...brandingDefaults,
       ...deploymentBranding(),
-      ...(server.instance_name ? { productName: server.instance_name } : {}),
-      ...(server.main_logo_url ? { logoUrl: server.main_logo_url } : {}),
-      ...(server.nav_logo_url ? { navLogoUrl: server.nav_logo_url } : {}),
-      ...local,
+      ...server,
+      ...readSavedBranding(),
     });
     applyBrandingToDocument();
+    window.dispatchEvent(new CustomEvent('branding-updated'));
   } catch {
     // Keep deployment defaults when Core is unavailable during startup.
   }
@@ -123,13 +175,17 @@ export const saveBranding = (next: BrandingConfig) => {
   window.dispatchEvent(new CustomEvent('branding-updated'));
 };
 
+export const clearLocalBrandingOverride = () => {
+  if (typeof window !== 'undefined') window.localStorage.removeItem(STORAGE_KEY);
+};
+
 export const resetBranding = () => {
   const next: BrandingConfig = {
     ...brandingDefaults,
     ...deploymentBranding(),
   };
   Object.assign(branding, next);
-  if (typeof window !== 'undefined') window.localStorage.removeItem(STORAGE_KEY);
+  clearLocalBrandingOverride();
   applyBrandingToDocument();
   window.dispatchEvent(new CustomEvent('branding-updated'));
   return next;
