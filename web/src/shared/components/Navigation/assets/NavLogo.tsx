@@ -2,10 +2,11 @@ import { branding } from '../../../branding/branding';
 import { ThemeVariable } from '../../../defguard-ui/types';
 
 export const NavLogo = () => {
-  if (branding.logoUrl) {
+  const customLogo = branding.navLogoUrl || branding.logoUrl;
+  if (customLogo) {
     return (
       <img
-        src={branding.logoUrl}
+        src={customLogo}
         alt={branding.productName}
         style={{ maxWidth: 172, maxHeight: 28, objectFit: 'contain' }}
       />
