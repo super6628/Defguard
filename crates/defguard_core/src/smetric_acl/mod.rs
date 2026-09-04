@@ -1,4 +1,5 @@
 pub mod api;
+pub mod gateway;
 pub mod service;
 
 use std::{fmt, net::IpAddr, str::FromStr};
