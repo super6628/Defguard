@@ -17,7 +17,9 @@ export type BrandingConfig = {
   setupButtonText: string;
 };
 
-const defaults: BrandingConfig = {
+const STORAGE_KEY = 'white-label-branding';
+
+export const brandingDefaults: BrandingConfig = {
   companyName: 'S-Metric',
   productName: 'S-Metric Secure',
   shortName: 'S-Metric',
@@ -43,29 +45,56 @@ declare global {
   }
 }
 
+const readSavedBranding = (): Partial<BrandingConfig> => {
+  if (typeof window === 'undefined') return {};
+  try {
+    const saved = window.localStorage.getItem(STORAGE_KEY);
+    return saved ? (JSON.parse(saved) as Partial<BrandingConfig>) : {};
+  } catch {
+    return {};
+  }
+};
+
 export const branding: BrandingConfig = {
-  ...defaults,
+  ...brandingDefaults,
   ...(typeof window !== 'undefined' ? window.__WHITE_LABEL__ : {}),
+  ...readSavedBranding(),
 };
 
 export const applyBrandingToDocument = () => {
   if (typeof document === 'undefined') return;
-
   document.title = branding.productName;
-
   const appName = document.querySelector<HTMLMetaElement>('meta[name="application-name"]');
   if (appName) appName.content = branding.productName;
-
   const author = document.querySelector<HTMLMetaElement>('meta[name="author"]');
   if (author) author.content = branding.companyName;
-
   if (branding.faviconUrl) {
     document.querySelectorAll<HTMLLinkElement>('link[rel*="icon"]').forEach((link) => {
       link.href = branding.faviconUrl;
     });
   }
-
   if (branding.primaryColor) {
     document.documentElement.style.setProperty('--brand-primary', branding.primaryColor);
+  } else {
+    document.documentElement.style.removeProperty('--brand-primary');
   }
+};
+
+export const saveBranding = (next: BrandingConfig) => {
+  Object.assign(branding, next);
+  if (typeof window !== 'undefined') window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  applyBrandingToDocument();
+  window.dispatchEvent(new CustomEvent('branding-updated'));
+};
+
+export const resetBranding = () => {
+  const next: BrandingConfig = {
+    ...brandingDefaults,
+    ...(typeof window !== 'undefined' ? window.__WHITE_LABEL__ : {}),
+  };
+  Object.assign(branding, next);
+  if (typeof window !== 'undefined') window.localStorage.removeItem(STORAGE_KEY);
+  applyBrandingToDocument();
+  window.dispatchEvent(new CustomEvent('branding-updated'));
+  return next;
 };
