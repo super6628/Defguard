@@ -7,31 +7,31 @@ pub mod smetric_microsoft_oidc;
 
 // Keep the upstream modules compiled under compatibility names because internal
 // directory-sync and desktop-MFA code still consumes helper functions from them.
-// The public router-facing module names below expose the independent S-Metric
-// authentication/provider handlers instead.
+// The router-facing module names below expose the independent S-Metric
+// authentication/provider handlers without exporting them outside this crate.
 #[path = "openid_login.rs"]
 pub mod upstream_openid_login;
 #[path = "openid_providers.rs"]
 pub mod upstream_openid_providers;
 
-pub mod openid_login {
-    pub use super::smetric_microsoft_oidc::{auth_callback, get_auth_info};
+pub(crate) mod openid_login {
+    pub(crate) use super::smetric_microsoft_oidc::{auth_callback, get_auth_info};
     pub(crate) use super::upstream_openid_login::{extract_state_data, user_from_claims};
-    pub use super::upstream_openid_login::prune_username;
+    pub(crate) use super::upstream_openid_login::prune_username;
 
     // Preserve the generated OpenAPI path descriptors expected by openapi.rs.
-    pub use super::upstream_openid_login::{__path_auth_callback, __path_get_auth_info};
+    pub(crate) use super::upstream_openid_login::{__path_auth_callback, __path_get_auth_info};
 }
 
-pub mod openid_providers {
-    pub use super::smetric_microsoft_oidc::{
+pub(crate) mod openid_providers {
+    pub(crate) use super::smetric_microsoft_oidc::{
         add_openid_provider, delete_openid_provider, get_current_openid_provider,
         get_openid_provider, list_openid_providers, modify_openid_provider,
         test_dirsync_connection,
     };
 
     // Preserve the generated OpenAPI path descriptors expected by openapi.rs.
-    pub use super::upstream_openid_providers::{
+    pub(crate) use super::upstream_openid_providers::{
         __path_add_openid_provider, __path_delete_openid_provider,
         __path_get_current_openid_provider, __path_get_openid_provider,
         __path_list_openid_providers, __path_modify_openid_provider,
