@@ -3,7 +3,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get as route_get, post},
 };
 use serde::Serialize;
 
@@ -21,8 +21,8 @@ use super::{Policy, Rule};
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/policies", get(list).post(create))
-        .route("/policies/{policy_id}", get(get).delete(remove))
+        .route("/policies", route_get(list).post(create))
+        .route("/policies/{policy_id}", route_get(get).delete(remove))
         .route("/policies/{policy_id}/rules", post(create_rule))
         .route("/policies/{policy_id}/validate", post(validate))
         .route("/policies/{policy_id}/publish", post(publish))
