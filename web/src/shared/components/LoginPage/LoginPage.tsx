@@ -1,6 +1,7 @@
 import './style.scss';
 import dayjs from 'dayjs';
 import type { PropsWithChildren } from 'react';
+import { branding } from '../../branding/branding';
 import { SizedBox } from '../../defguard-ui/components/SizedBox/SizedBox';
 import { ThemeSpacing } from '../../defguard-ui/types';
 import loginImage from './assets/login.png';
@@ -19,11 +20,7 @@ export const LoginPage = ({ children, id }: PropsWithChildren & { id?: string })
           {children}
           <footer>
             <p>
-              Copyright © {dayjs().year()}{' '}
-              <a href="https://defguard.net" target="_blank" rel="noopener">
-                Defguard
-              </a>{' '}
-              Sp. z o.o.
+              Copyright © {dayjs().year()} {branding.copyrightName}
             </p>
           </footer>
         </main>
