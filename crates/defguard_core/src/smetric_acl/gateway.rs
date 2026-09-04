@@ -15,24 +15,16 @@ use super::{Action, CompiledPolicy, DefaultAction, Destination, Protocol, Rule, 
 
 #[derive(Debug, thiserror::Error)]
 pub enum GatewayEnforcementError {
-    #[error(transparent)]
-    Database(#[from] sqlx::Error),
-    #[error(transparent)]
-    Service(#[from] ServiceError),
-    #[error("S-Metric ACL policy {0} is not assigned to any enabled VPN location")]
-    NoAssignments(i64),
+    #[error(transparent)] Database(#[from] sqlx::Error),
+    #[error(transparent)] Service(#[from] ServiceError),
+    #[error("S-Metric ACL policy {0} is not assigned to any enabled VPN location")] NoAssignments(i64),
     #[error("rule {rule_id} source selector '{selector}' resolved to no VPN addresses at location {location_id}")]
     EmptySourceResolution { rule_id: i64, selector: String, location_id: i64 },
-    #[error("rule {rule_id} uses source selector '{selector}', which is not yet supported by gateway enforcement")]
-    UnsupportedSourceSelector { rule_id: i64, selector: &'static str },
     #[error("rule {rule_id} uses destination selector '{selector}', which is not yet supported by gateway enforcement")]
     UnsupportedDestinationSelector { rule_id: i64, selector: &'static str },
-    #[error("rule {0} uses REJECT, but the current gateway protocol supports ALLOW/DENY only")]
-    RejectUnsupported(i64),
-    #[error("rule {0} mixes IPv4 and IPv6 selectors")]
-    AddressFamilyMismatch(i64),
-    #[error("rule {0} contains an invalid IP selector")]
-    InvalidAddress(i64),
+    #[error("rule {0} uses REJECT, but the current gateway protocol supports ALLOW/DENY only")] RejectUnsupported(i64),
+    #[error("rule {0} mixes IPv4 and IPv6 selectors")] AddressFamilyMismatch(i64),
+    #[error("rule {0} contains an invalid IP selector")] InvalidAddress(i64),
 }
 
 #[derive(Clone, Debug)]
@@ -79,8 +71,8 @@ async fn translate_source(pool: &PgPool, rule: &Rule, location_id: i64) -> Resul
         Subject::User(username) => resolved_source(rule.id, location_id, format!("user:{username}"), resolve_user_ips(pool, location_id, username).await?),
         Subject::Group(group_name) => resolved_source(rule.id, location_id, format!("group:{group_name}"), resolve_group_ips(pool, location_id, group_name).await?),
         Subject::Device(device_name) => resolved_source(rule.id, location_id, format!("device:{device_name}"), resolve_device_ips(pool, location_id, device_name).await?),
-        Subject::DeviceGroup(_) => Err(GatewayEnforcementError::UnsupportedSourceSelector { rule_id: rule.id, selector: "device_group" }),
-        Subject::Location(_) => Err(GatewayEnforcementError::UnsupportedSourceSelector { rule_id: rule.id, selector: "location" }),
+        Subject::DeviceGroup(group_name) => resolved_source(rule.id, location_id, format!("device_group:{group_name}"), resolve_device_group_ips(pool, location_id, group_name).await?),
+        Subject::Location(location_name) => resolved_source(rule.id, location_id, format!("location:{location_name}"), resolve_location_ips(pool, location_id, location_name).await?),
     }
 }
 
@@ -97,6 +89,16 @@ async fn resolve_group_ips(pool: &PgPool, location_id: i64, group_name: &str) ->
 async fn resolve_device_ips(pool: &PgPool, location_id: i64, device_name: &str) -> Result<Vec<IpAddr>, sqlx::Error> {
     sqlx::query_scalar::<_, IpAddr>("SELECT DISTINCT unnest(wnd.wireguard_ips)::inet FROM wireguard_network_device wnd JOIN device d ON d.id = wnd.device_id WHERE wnd.wireguard_network_id = $1 AND d.name = $2 AND d.configured = TRUE ORDER BY 1")
         .bind(location_id).bind(device_name).fetch_all(pool).await
+}
+
+async fn resolve_device_group_ips(pool: &PgPool, location_id: i64, group_name: &str) -> Result<Vec<IpAddr>, sqlx::Error> {
+    sqlx::query_scalar::<_, IpAddr>("SELECT DISTINCT unnest(wnd.wireguard_ips)::inet FROM smetric_acl_device_group dg JOIN smetric_acl_device_group_member dgm ON dgm.group_id = dg.id JOIN device d ON d.id = dgm.device_id JOIN wireguard_network_device wnd ON wnd.device_id = d.id WHERE dg.name = $1 AND dg.enabled = TRUE AND d.configured = TRUE AND wnd.wireguard_network_id = $2 ORDER BY 1")
+        .bind(group_name).bind(location_id).fetch_all(pool).await
+}
+
+async fn resolve_location_ips(pool: &PgPool, deployment_location_id: i64, location_name: &str) -> Result<Vec<IpAddr>, sqlx::Error> {
+    sqlx::query_scalar::<_, IpAddr>("SELECT DISTINCT unnest(wnd.wireguard_ips)::inet FROM wireguard_network wn JOIN wireguard_network_device wnd ON wnd.wireguard_network_id = wn.id JOIN device d ON d.id = wnd.device_id WHERE wn.id = $1 AND wn.name = $2 AND d.configured = TRUE ORDER BY 1")
+        .bind(deployment_location_id).bind(location_name).fetch_all(pool).await
 }
 
 fn resolved_source(rule_id: i64, location_id: i64, selector: String, mut ips: Vec<IpAddr>) -> Result<(Vec<IpAddress>, IpVersion), GatewayEnforcementError> {
@@ -123,4 +125,29 @@ fn network_version(network: IpNetwork) -> IpVersion { if network.is_ipv4() { IpV
 fn ip_version(ip: IpAddr) -> IpVersion { if ip.is_ipv4() { IpVersion::Ipv4 } else { IpVersion::Ipv6 } }
 fn merge_ip_versions(rule_id: i64, left: IpVersion, right: IpVersion) -> Result<IpVersion, GatewayEnforcementError> {
     match (left, right) { (IpVersion::Unspecified, other) | (other, IpVersion::Unspecified) => Ok(other), (IpVersion::Ipv4, IpVersion::Ipv4) => Ok(IpVersion::Ipv4), (IpVersion::Ipv6, IpVersion::Ipv6) => Ok(IpVersion::Ipv6), _ => Err(GatewayEnforcementError::AddressFamilyMismatch(rule_id)) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolved_source_sorts_and_deduplicates() {
+        let ips = vec!["10.0.0.2".parse().unwrap(), "10.0.0.1".parse().unwrap(), "10.0.0.2".parse().unwrap()];
+        let (addresses, version) = resolved_source(7, 3, "user:alice".into(), ips).unwrap();
+        assert_eq!(version, IpVersion::Ipv4);
+        assert_eq!(addresses, vec![IpAddress::Ip("10.0.0.1".into()), IpAddress::Ip("10.0.0.2".into())]);
+    }
+
+    #[test]
+    fn resolved_source_rejects_empty_identity() {
+        let error = resolved_source(7, 3, "group:Accounting".into(), Vec::new()).unwrap_err();
+        assert!(matches!(error, GatewayEnforcementError::EmptySourceResolution { rule_id: 7, location_id: 3, .. }));
+    }
+
+    #[test]
+    fn resolved_source_rejects_mixed_address_families() {
+        let ips = vec!["10.0.0.1".parse().unwrap(), "2001:db8::1".parse().unwrap()];
+        assert!(matches!(resolved_source(9, 3, "device:laptop".into(), ips), Err(GatewayEnforcementError::AddressFamilyMismatch(9))));
+    }
 }
