@@ -11,6 +11,7 @@ use axum_extra::{
     },
     headers::UserAgent,
 };
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use defguard_common::{
     config::server_config,
     db::models::{Settings, User, settings::OpenIdUsernameHandling},
@@ -25,6 +26,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use time::Duration;
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use crate::{
     appstate::AppState,
@@ -96,6 +98,11 @@ struct PublicProvider {
     is_default: bool,
 }
 
+#[derive(Debug, Deserialize)]
+struct MicrosoftIdTokenPayload {
+    tid: String,
+}
+
 fn username_handling_to_db(value: OpenIdUsernameHandling) -> &'static str {
     match value {
         OpenIdUsernameHandling::RemoveForbidden => "remove_forbidden",
@@ -123,7 +130,13 @@ fn normalize_tenant(tenant: &str) -> Result<String, WebError> {
             "Use a tenant-specific Microsoft Entra tenant ID for S-Metric Secure".into(),
         ));
     }
-    Ok(tenant.to_owned())
+    Uuid::parse_str(tenant)
+        .map(|value| value.hyphenated().to_string())
+        .map_err(|_| {
+            WebError::BadRequest(
+                "Microsoft tenant ID must be the tenant GUID shown in Microsoft Entra ID".into(),
+            )
+        })
 }
 
 fn microsoft_issuer(tenant_id: &str, base_url: &str) -> Result<String, WebError> {
@@ -495,6 +508,24 @@ fn validate_email_domain(provider: &SMetricOidcProvider, email: &str) -> Result<
     }
 }
 
+fn microsoft_tid_from_validated_id_token(id_token: &str) -> Result<String, WebError> {
+    let payload = id_token
+        .split('.')
+        .nth(1)
+        .ok_or_else(|| WebError::Authorization("Microsoft ID token payload is malformed".into()))?;
+    let decoded = URL_SAFE_NO_PAD
+        .decode(payload)
+        .map_err(|_| WebError::Authorization("Microsoft ID token payload encoding is invalid".into()))?;
+    let claims: MicrosoftIdTokenPayload = serde_json::from_slice(&decoded)
+        .map_err(|_| WebError::Authorization("Microsoft ID token is missing the tenant claim".into()))?;
+    normalize_tenant(&claims.tid)
+        .map_err(|_| WebError::Authorization("Microsoft ID token tenant claim is invalid".into()))
+}
+
+fn provider_subject(provider: &SMetricOidcProvider, sub: &str) -> String {
+    format!("smetric:microsoft:{}:{sub}", provider.id)
+}
+
 async fn resolve_user(
     pool: &sqlx::PgPool,
     provider: &SMetricOidcProvider,
@@ -505,22 +536,36 @@ async fn resolve_user(
     family_name: Option<&str>,
 ) -> Result<User<defguard_common::db::Id>, WebError> {
     validate_email_domain(provider, email)?;
-    let provider_subject = format!("{}:{sub}", provider.tenant_id);
+    let scoped_subject = provider_subject(provider, sub);
 
-    if let Some(user) = User::find_by_sub(pool, &provider_subject).await? {
+    if let Some(user) = User::find_by_sub(pool, &scoped_subject).await? {
         if !user.is_active {
             return Err(WebError::Authorization("User is disabled".into()));
         }
         return Ok(user);
     }
 
-    if let Some(mut user) = User::find_by_email(pool, email).await? {
+    // Migrate identities created by the first S-Metric OIDC prototype from the old
+    // tenant_id:sub namespace to the provider-scoped namespace. This is the only automatic
+    // account-linking path retained for existing OIDC identities.
+    let legacy_subject = format!("{}:{sub}", provider.tenant_id);
+    if let Some(mut user) = User::find_by_sub(pool, &legacy_subject).await? {
         if !user.is_active {
             return Err(WebError::Authorization("User is disabled".into()));
         }
-        user.openid_sub = Some(provider_subject);
+        user.openid_sub = Some(scoped_subject);
         user.save(pool).await?;
         return Ok(user);
+    }
+
+    // Do not silently attach a new Microsoft identity to an existing local account just because
+    // the email text matches. In a multi-tenant deployment that can cross-link identities from
+    // different organizations. Existing accounts must already carry the exact OIDC subject.
+    if User::find_by_email(pool, email).await?.is_some() {
+        return Err(WebError::Authorization(
+            "A local account with this email already exists but is not linked to this Microsoft organization"
+                .into(),
+        ));
     }
 
     if !provider.auto_create {
@@ -546,7 +591,7 @@ async fn resolve_user(
         email.to_owned(),
         None,
     );
-    user.openid_sub = Some(provider_subject);
+    user.openid_sub = Some(scoped_subject);
     Ok(user.save(pool).await?)
 }
 
@@ -620,6 +665,16 @@ pub async fn auth_callback(
     {
         return Err(WebError::Authorization(
             "Microsoft ID token audience does not match this application".into(),
+        ));
+    }
+
+    // The token has already passed the openidconnect library's signature, issuer, nonce, and
+    // standard claim checks above. Decode the signed JWT payload only to inspect Microsoft's
+    // tenant-specific `tid` claim and require it to match the provider selected before login.
+    let token_tid = microsoft_tid_from_validated_id_token(&id_token.to_string())?;
+    if !token_tid.eq_ignore_ascii_case(&provider.tenant_id) {
+        return Err(WebError::Authorization(
+            "Microsoft ID token tenant does not match the selected organization".into(),
         ));
     }
 
