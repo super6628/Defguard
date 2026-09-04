@@ -2,6 +2,7 @@ import './style.scss';
 import clsx from 'clsx';
 import dayjs from 'dayjs';
 import { m } from '../../../../paraglide/messages';
+import { branding } from '../../../branding/branding';
 import { AppText } from '../../../defguard-ui/components/AppText/AppText';
 import { ExternalLink } from '../../../defguard-ui/components/ExternalLink/ExternalLink';
 import { SizedBox } from '../../../defguard-ui/components/SizedBox/SizedBox';
@@ -20,7 +21,7 @@ export const WizardWelcomePage = ({
   content,
   media,
   containerProps,
-  docsLink = 'https://docs.defguard.net/',
+  docsLink = branding.documentationUrl,
   docsText = m.initial_setup_wizard_welcome_docs_description(),
   displayDocs = true,
   onClose,
@@ -42,12 +43,11 @@ export const WizardWelcomePage = ({
             </AppText>
             <div className="left">{content}</div>
           </div>
-          {displayDocs && (
+          {displayDocs && Boolean(docsLink) && (
             <div id="docs-card">
               <div className="image-track">
                 <img src={fileIcon} alt={m.initial_setup_wizard_welcome_docs_alt()} />
               </div>
-
               <div className="content">
                 <p>{docsText}</p>
                 <div>
@@ -67,8 +67,14 @@ export const WizardWelcomePage = ({
         </div>
       </div>
       <div className="footer">
-        <p>{m.footer_copyright({ year: dayjs().year() })}</p>
-        <p>S-Metric Secure</p>
+        <p>Copyright © {dayjs().year()} {branding.copyrightName}</p>
+        {branding.supportEmail ? (
+          <p>
+            Support: <a href={`mailto:${branding.supportEmail}`}>{branding.supportEmail}</a>
+          </p>
+        ) : (
+          <p>{branding.productName}</p>
+        )}
       </div>
     </div>
   );
