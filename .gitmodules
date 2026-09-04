@@ -1,6 +1,6 @@
 [submodule "proto"]
 	path = proto
-	url = ../proto.git
+	url = https://github.com/DefGuard/proto.git
 [submodule "web/src/shared/defguard-ui"]
 	path = web/src/shared/defguard-ui
-	url = ../ui.git
+	url = https://github.com/DefGuard/ui.git
