@@ -13,6 +13,7 @@ use crate::{
     grpc::smetric_config_sync::notify_config_changed,
 };
 
+use super::gateway::{GatewayEnforcementError, prepare_deployments};
 use super::service::{
     CreatePolicy, CreateRule, PolicySummary, PublishedPolicy, ServiceError, add_rule, create_policy,
     delete_policy, list_policies, load_policy, publish_policy, validate_policy,
@@ -53,6 +54,17 @@ impl IntoResponse for ApiError {
         };
         (status, Json(ErrorBody { error: self.0.to_string() })).into_response()
     }
+}
+
+fn gateway_error_response(error: GatewayEnforcementError) -> Response {
+    let status = match error {
+        GatewayEnforcementError::Database(_) | GatewayEnforcementError::Service(ServiceError::Database(_)) => {
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+        GatewayEnforcementError::Service(ServiceError::PolicyNotFound(_)) => StatusCode::NOT_FOUND,
+        _ => StatusCode::BAD_REQUEST,
+    };
+    (status, Json(ErrorBody { error: error.to_string() })).into_response()
 }
 
 pub async fn list(
@@ -110,8 +122,18 @@ pub async fn publish(
     _admin: AdminRole,
     State(state): State<AppState>,
     Path(policy_id): Path<i64>,
-) -> Result<Json<PublishedPolicy>, ApiError> {
-    let published = publish_policy(&state.pool, policy_id).await?;
+) -> Result<Json<PublishedPolicy>, Response> {
+    let deployments = prepare_deployments(&state.pool, policy_id)
+        .await
+        .map_err(gateway_error_response)?;
+    let published = publish_policy(&state.pool, policy_id)
+        .await
+        .map_err(|error| ApiError(error).into_response())?;
+
+    for deployment in deployments {
+        state.send_gateway_command(deployment.command);
+    }
+
     notify_config_changed(format!(
         "smetric_acl:policy:{}:revision:{}",
         published.policy_id, published.revision
