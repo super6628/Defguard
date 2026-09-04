@@ -8,15 +8,13 @@ use axum::{
 use serde::Serialize;
 
 use crate::{
-    appstate::AppState,
-    auth::AdminRole,
-    grpc::smetric_config_sync::notify_config_changed,
+    appstate::AppState, auth::AdminRole, grpc::smetric_config_sync::notify_config_changed,
 };
 
 use super::gateway::{GatewayEnforcementError, prepare_deployments};
 use super::service::{
-    CreatePolicy, CreateRule, PolicySummary, PublishedPolicy, ServiceError, add_rule, create_policy,
-    delete_policy, list_policies, load_policy, publish_policy, validate_policy,
+    CreatePolicy, CreateRule, PolicySummary, PublishedPolicy, ServiceError, add_rule,
+    create_policy, delete_policy, list_policies, load_policy, publish_policy, validate_policy,
 };
 use super::{Policy, Rule};
 
@@ -52,19 +50,32 @@ impl IntoResponse for ApiError {
             }
             ServiceError::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
-        (status, Json(ErrorBody { error: self.0.to_string() })).into_response()
+        (
+            status,
+            Json(ErrorBody {
+                error: self.0.to_string(),
+            }),
+        )
+            .into_response()
     }
 }
 
 fn gateway_error_response(error: GatewayEnforcementError) -> Response {
     let status = match error {
-        GatewayEnforcementError::Database(_) | GatewayEnforcementError::Service(ServiceError::Database(_)) => {
+        GatewayEnforcementError::Database(_)
+        | GatewayEnforcementError::Service(ServiceError::Database(_)) => {
             StatusCode::INTERNAL_SERVER_ERROR
         }
         GatewayEnforcementError::Service(ServiceError::PolicyNotFound(_)) => StatusCode::NOT_FOUND,
         _ => StatusCode::BAD_REQUEST,
     };
-    (status, Json(ErrorBody { error: error.to_string() })).into_response()
+    (
+        status,
+        Json(ErrorBody {
+            error: error.to_string(),
+        }),
+    )
+        .into_response()
 }
 
 pub async fn list(

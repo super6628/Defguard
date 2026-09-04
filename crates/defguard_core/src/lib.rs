@@ -217,6 +217,7 @@ pub mod letsencrypt;
 pub mod location_management;
 pub mod mail;
 pub mod setup_logs;
+pub mod smetric_acl;
 pub mod support;
 pub mod updates;
 pub mod user_management;
@@ -311,6 +312,7 @@ pub fn build_webapp(
             .route("/ssh_authorized_keys", get(get_authorized_keys))
             .route("/api-docs", get(openapi))
             .route("/updates", get(check_new_version))
+            .nest("/smetric/acl", smetric_acl::api::router())
             // /auth
             .route("/auth", post(authenticate))
             .route("/auth/logout", post(logout))

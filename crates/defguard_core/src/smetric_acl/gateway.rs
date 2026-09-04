@@ -10,8 +10,8 @@ use defguard_common::{
 use ipnetwork::IpNetwork;
 use sqlx::PgPool;
 
-use super::{Action, CompiledPolicy, DefaultAction, Destination, Protocol, Rule, Subject, compile};
 use super::service::{ServiceError, load_policy};
+use super::{Action, CompiledPolicy, DefaultAction, Destination, Protocol, Rule, Subject, compile};
 
 #[derive(Debug, thiserror::Error)]
 pub enum GatewayEnforcementError {
@@ -21,10 +21,20 @@ pub enum GatewayEnforcementError {
     Service(#[from] ServiceError),
     #[error("S-Metric ACL policy {0} is not assigned to any enabled VPN location")]
     NoAssignments(i64),
-    #[error("rule {rule_id} uses source selector '{selector}', which is not yet supported by gateway enforcement")]
-    UnsupportedSourceSelector { rule_id: i64, selector: &'static str },
-    #[error("rule {rule_id} uses destination selector '{selector}', which is not yet supported by gateway enforcement")]
-    UnsupportedDestinationSelector { rule_id: i64, selector: &'static str },
+    #[error(
+        "rule {rule_id} uses source selector '{selector}', which is not yet supported by gateway enforcement"
+    )]
+    UnsupportedSourceSelector {
+        rule_id: i64,
+        selector: &'static str,
+    },
+    #[error(
+        "rule {rule_id} uses destination selector '{selector}', which is not yet supported by gateway enforcement"
+    )]
+    UnsupportedDestinationSelector {
+        rule_id: i64,
+        selector: &'static str,
+    },
     #[error("rule {0} uses REJECT, but the current gateway protocol supports ALLOW/DENY only")]
     RejectUnsupported(i64),
     #[error("rule {0} mixes IPv4 and IPv6 selectors")]
@@ -43,8 +53,7 @@ pub async fn prepare_deployments(
     pool: &PgPool,
     policy_id: i64,
 ) -> Result<Vec<GatewayDeployment>, GatewayEnforcementError> {
-    let policy = compile(load_policy(pool, policy_id).await?)
-        .map_err(ServiceError::Validation)?;
+    let policy = compile(load_policy(pool, policy_id).await?).map_err(ServiceError::Validation)?;
     let config = translate_policy(&policy)?;
     let location_ids = sqlx::query_scalar::<_, i64>(
         "SELECT location_id FROM smetric_acl_policy_assignment WHERE policy_id = $1 AND enabled = TRUE ORDER BY location_id",
@@ -128,9 +137,7 @@ fn translate_rule(rule: &Rule, revision: u64) -> Result<FirewallRule, GatewayEnf
     })
 }
 
-fn translate_source(
-    rule: &Rule,
-) -> Result<(Vec<IpAddress>, IpVersion), GatewayEnforcementError> {
+fn translate_source(rule: &Rule) -> Result<(Vec<IpAddress>, IpVersion), GatewayEnforcementError> {
     match &rule.source {
         Subject::Any => Ok((Vec::new(), IpVersion::Unspecified)),
         Subject::Cidr(value) => {
