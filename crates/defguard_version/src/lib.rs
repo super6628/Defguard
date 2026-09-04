@@ -6,59 +6,13 @@
 //!
 //! # Headers
 //!
-//! The crate defines two standard headers used across all Defguard gRPC communications:
+//! The crate defines two compatibility headers used across internal gRPC communications:
 //!
-//! - `defguard-version`: Semantic version string (e.g., "1.2.3")
-//! - `defguard-system`: Semicolon-separated system information (OS;version;arch)
+//! - `defguard-component-version`: Semantic version string
+//! - `defguard-component-system`: System information
 //!
-//! # Usage
-//!
-//! ## Server-side middleware
-//!
-//! ```rust,ignore
-//! use defguard_version::server::DefguardVersionLayer;
-//! use semver::Version;
-//! use tower::ServiceBuilder;
-//!
-//! let version = Version::parse("1.0.0").unwrap();
-//! let layer = DefguardVersionLayer::new(version);
-//! let service = ServiceBuilder::new()
-//!     .layer(layer)
-//!     .service(my_grpc_service);
-//! ```
-//!
-//! ## Client-side interceptor
-//!
-//! ```rust,ignore
-//! use defguard_version::client::version_interceptor;
-//! use semver::Version;
-//! use tonic::transport::Channel;
-//!
-//! let version = Version::parse("1.0.0").unwrap();
-//! let channel = Channel::from_static("http://localhost:50051").connect().await.unwrap();
-//! let client = MyServiceClient::with_interceptor(
-//!     channel,
-//!     version_interceptor(version)
-//! );
-//! ```
-//!
-//! ## Parsing version information
-//!
-//! ```rust
-//! use defguard_version::{ComponentInfo, version_info_from_metadata};
-//! use tonic::metadata::MetadataMap;
-//!
-//! let metadata = MetadataMap::new();
-//!
-//! // Extract parsed version and system info
-//! if let Some(component_info) = ComponentInfo::from_metadata(&metadata) {
-//!     println!("Client version: {}", component_info.version);
-//!     println!("Client system: {}", component_info.system);
-//! }
-//!
-//! // Get version info as strings (with fallback)
-//! let (version_str, system_str) = version_info_from_metadata(&metadata);
-//! ```
+//! Public HTTP responses use the S-Metric-branded version header instead, while the legacy
+//! internal metadata names are retained for compatibility with existing Edge/Gateway clients.
 
 use std::{cmp::Ordering, fmt, str::FromStr};
 
@@ -72,11 +26,14 @@ pub mod client;
 pub mod server;
 pub mod tracing;
 
-/// HTTP header name for the Defguard component version.
+/// Compatibility metadata header used for component-to-component version exchange.
 pub static VERSION_HEADER: &str = "defguard-component-version";
 
-/// HTTP header name for the Defguard system information.
+/// Compatibility metadata header used for component-to-component system information.
 pub static SYSTEM_INFO_HEADER: &str = "defguard-component-system";
+
+/// Customer-visible HTTP response header for the S-Metric component version.
+pub static PUBLIC_VERSION_HEADER: &str = "smetric-component-version";
 
 #[derive(Debug, Error)]
 pub enum DefguardVersionError {
@@ -86,11 +43,11 @@ pub enum DefguardVersionError {
     #[error("Failed to parse SystemInfo header: {0}")]
     SystemInfoParseError(String),
 
-    #[error("Invalid DefguardComponent: {0}")]
+    #[error("Invalid component: {0}")]
     InvalidDefguardComponent(String),
 }
 
-/// Represents the different types of Defguard components that can communicate via gRPC.
+/// Represents the different types of components that can communicate via gRPC.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash)]
 pub enum DefguardComponent {
     Core,
@@ -121,53 +78,20 @@ impl fmt::Display for DefguardComponent {
     }
 }
 
-/// System information about the host running a Defguard component.
-///
-/// This struct captures key system characteristics that are useful for
-/// debugging, compatibility checking, and system analytics. The information
-/// is automatically detected from the host system and can be serialized
-/// into HTTP headers for transmission over gRPC.
-///
-/// # Examples
-///
-/// ```rust
-/// use defguard_version::SystemInfo;
-///
-/// // Get current system information
-/// let info = SystemInfo::get();
-/// println!("Running on: {info}");
-///
-/// // Access individual fields
-/// println!("OS: {} {}", info.os_type, info.os_version);
-/// println!("Architecture: {}", info.architecture);
-/// ```
 #[derive(Debug, Clone)]
 pub struct SystemInfo {
-    /// The operating system type (e.g., "Linux", "Windows", "macOS")
     pub os_type: String,
-    /// The operating system version (e.g., "22.04", "11", "13.0")
     pub os_version: String,
-    /// The system architecture (e.g., "x86_64", "aarch64", "arm")
     pub architecture: String,
 }
 
 impl fmt::Display for SystemInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} {} {}",
-            self.os_type, self.os_version, self.architecture
-        )
+        write!(f, "{} {} {}", self.os_type, self.os_version, self.architecture)
     }
 }
 
 impl SystemInfo {
-    /// Automatically detects the operating system type, version and architecture
-    /// using the `os_info` crate.
-    ///
-    /// # Returns
-    ///
-    /// A `SystemInfo` struct populated with the current system's characteristics.
     #[must_use]
     pub fn get() -> Self {
         Self::from(os_info::get())
@@ -180,9 +104,7 @@ impl SystemInfo {
     fn try_from_header_value(header_value: &str) -> Result<Self, DefguardVersionError> {
         let parts = header_value.split(';').collect::<Vec<_>>();
         if parts.len() != 3 {
-            return Err(DefguardVersionError::SystemInfoParseError(
-                header_value.to_owned(),
-            ));
+            return Err(DefguardVersionError::SystemInfoParseError(header_value.to_owned()));
         }
 
         Ok(Self {
@@ -203,37 +125,13 @@ impl From<os_info::Info> for SystemInfo {
     }
 }
 
-/// Combined version and system information for a Defguard component.
-///
-/// This struct bundles together both the semantic version of a component
-/// and the system information of the host it's running on. It's used by
-/// middleware to generate the appropriate headers for gRPC communication.
 #[derive(Debug, Clone)]
 pub struct ComponentInfo {
-    /// The semantic version of the component
     pub version: Version,
-    /// System information about the host
     pub system: SystemInfo,
 }
 
 impl ComponentInfo {
-    /// Creates a new `ComponentInfo` with the provided version and automatically detects
-    /// the current system information.
-    ///
-    /// # Arguments
-    ///
-    /// * `version` - A parsed semantic version
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use defguard_version::ComponentInfo;
-    /// use semver::Version;
-    ///
-    /// let version = Version::parse("1.0.0").unwrap();
-    /// let info = ComponentInfo::new(version);
-    /// assert_eq!(info.version.major, 1);
-    /// ```
     #[must_use]
     pub fn new(version: Version) -> Self {
         let info = os_info::get();
@@ -243,33 +141,6 @@ impl ComponentInfo {
         }
     }
 
-    /// Parses version and system information from gRPC metadata headers.
-    ///
-    /// This function extracts and parses the Defguard version headers from
-    /// gRPC metadata, returning structured version and system information.
-    /// If any parsing step fails, warnings are logged and `None` is returned.
-    ///
-    /// # Arguments
-    ///
-    /// * `metadata` - The gRPC metadata map containing headers
-    ///
-    /// # Returns
-    ///
-    /// * `Some(ComponentInfo)` - Successfully parsed version information.
-    /// * `None` - If headers are missing or parsing fails.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use defguard_version::ComponentInfo;
-    /// use tonic::metadata::MetadataMap;
-    ///
-    /// let metadata = MetadataMap::new();
-    /// if let Some(component_info) = ComponentInfo::from_metadata(&metadata) {
-    ///     println!("Peer version: {}", component_info.version);
-    ///     println!("Peer system: {}", component_info.system);
-    /// }
-    /// ```
     pub fn from_metadata(metadata: &MetadataMap) -> Option<Self> {
         let Some(version) = metadata.get(VERSION_HEADER) else {
             warn!("Missing version header");
@@ -296,34 +167,6 @@ impl ComponentInfo {
     }
 }
 
-/// Extracts version information from metadata as formatted strings with fallback.
-///
-/// This is a convenience function that calls `parse_metadata` internally and
-/// returns the version and system information as strings. If parsing fails,
-/// it returns "?" for both values instead of `None`.
-///
-/// # Arguments
-///
-/// * `metadata` - The gRPC metadata map containing headers
-///
-/// # Returns
-///
-/// A tuple containing:
-/// * Version string (or "?" if parsing failed)
-/// * System info string (or "?" if parsing failed)
-///
-/// # Examples
-///
-/// ```
-/// use defguard_version::version_info_from_metadata;
-/// use tonic::metadata::MetadataMap;
-///
-/// let metadata = MetadataMap::new();
-/// let (version, system) = version_info_from_metadata(&metadata);
-/// println!("Client: {version} running on {system}");
-/// // Output might be: "Client: 1.2.3 running on Linux 22.04 64-bit x86_64"
-/// // Or if headers missing: "Client: ? running on ?"
-/// ```
 #[must_use]
 pub fn version_info_from_metadata(metadata: &MetadataMap) -> (Version, String) {
     ComponentInfo::from_metadata(metadata)
@@ -344,16 +187,11 @@ pub fn get_tracing_variables(info: &Option<ComponentInfo>) -> (Version, String) 
     (version, info)
 }
 
-/// Compares two versions while omitting pre-release and build metadata, which we use
-/// for git commit hash.
-/// Returns true if v1 < v2.
 #[must_use]
 pub fn is_version_lower(v1: &Version, v2: &Version) -> bool {
     let (mut v1, mut v2) = (v1.clone(), v2.clone());
-    // ignore pre-release
     v1.pre = Prerelease::EMPTY;
     v2.pre = Prerelease::EMPTY;
-    // ignore build metadata
     v1.cmp_precedence(&v2) == Ordering::Less
 }
 
@@ -382,22 +220,6 @@ mod test {
         let v1 = Version::parse("1.5.0-rc1").unwrap();
         let v2 = Version::parse("1.6.0").unwrap();
         assert!(is_version_lower(&v1, &v2));
-
-        let v1 = Version::parse("1.5.0-alpha1").unwrap();
-        let v2 = Version::parse("1.5.0-alpha2").unwrap();
-        assert!(!is_version_lower(&v1, &v2));
-
-        let v1 = Version::parse("1.5.0-alpha2").unwrap();
-        let v2 = Version::parse("1.5.0-alpha1").unwrap();
-        assert!(!is_version_lower(&v1, &v2));
-
-        let v1 = Version::parse("1.5.0+1").unwrap();
-        let v2 = Version::parse("1.5.0+2").unwrap();
-        assert!(!is_version_lower(&v1, &v2));
-
-        let v1 = Version::parse("1.5.0+2").unwrap();
-        let v2 = Version::parse("1.5.0+1").unwrap();
-        assert!(!is_version_lower(&v1, &v2));
 
         let v1 = Version::parse("1.5.0-alpha1+2").unwrap();
         let v2 = Version::parse("1.5.0-alpha2+1").unwrap();
