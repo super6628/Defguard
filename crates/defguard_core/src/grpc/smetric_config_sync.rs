@@ -11,7 +11,7 @@ use defguard_proto::smetric::config_sync::{
     AckResponse, ConfigAck, ConfigChanged, ConfigVersion, GetVersionRequest, SubscribeRequest,
     config_sync_service_server::ConfigSyncService,
 };
-use futures_util::{Stream, StreamExt};
+use futures::{Stream, StreamExt, stream};
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
 use tonic::{Request, Response, Status};
@@ -34,7 +34,6 @@ impl ConfigSyncHub {
     fn new() -> Self {
         let (tx, _) = broadcast::channel(EVENT_BUFFER);
         Self {
-            // Version zero means no S-Metric change has been published since Core started.
             version: AtomicU64::new(0),
             tx,
         }
@@ -124,13 +123,10 @@ impl ConfigSyncService for ConfigSyncServer {
                     reason: event.reason,
                     changed_at_unix_ms: event.changed_at_unix_ms,
                 })),
-                // Lagging clients do not need every intermediate event. They only need to fetch
-                // the newest effective configuration, and their periodic GetVersion reconciliation
-                // will recover from any missed notification.
                 Err(_) => None,
             }
         });
-        let stream = futures_util::stream::iter(initial).chain(live);
+        let stream = stream::iter(initial).chain(live);
         Ok(Response::new(Box::pin(stream)))
     }
 
