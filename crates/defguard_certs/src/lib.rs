@@ -15,7 +15,7 @@ use x509_parser::{
     parse_x509_certificate,
 };
 
-const CA_NAME: &str = "Defguard CA";
+const CA_NAME: &str = "S-Metric Secure CA";
 const NOT_BEFORE_OFFSET_SECS: Duration = Duration::minutes(5);
 const DEFAULT_CERT_VALIDITY_DAYS: i64 = 1825;
 const WEB_HTTPS_CERT_VALIDITY_DAYS: i64 = 100;
@@ -78,667 +78,157 @@ impl CertificateAuthority<'_> {
         email: &str,
         valid_for_days: u32,
     ) -> Result<Self, CertificateError> {
-        let mut ca_params = CertificateParams::new(vec![CA_NAME.to_owned()])?;
-
-        // path length 0 to avoid issuing further CAs
-        ca_params.is_ca = IsCa::Ca(BasicConstraints::Constrained(0));
-        ca_params
-            .distinguished_name
-            .push(rcgen::DnType::CommonName, common_name);
-
-        let email_string = Ia5String::from_str(email)?;
-        ca_params
-            .subject_alt_names
-            .push(rcgen::SanType::Rfc822Name(email_string));
-
-        let now = OffsetDateTime::now_utc();
-        ca_params.not_before = now - NOT_BEFORE_OFFSET_SECS;
-        ca_params.not_after = now + Duration::days(i64::from(valid_for_days));
-
-        let ca_key_pair = KeyPair::generate()?;
-
-        Self::from_key_cert_params(ca_key_pair, ca_params)
+        let mut params = CertificateParams::new(vec![CA_NAME.to_string(), email.to_string()])?;
+        params.distinguished_name.push(rcgen::DnType::CommonName, common_name);
+        params.is_ca = IsCa::Ca(BasicConstraints::Constrained(0));
+        params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::DigitalSignature];
+        params.not_before = OffsetDateTime::now_utc() - NOT_BEFORE_OFFSET_SECS;
+        params.not_after = OffsetDateTime::now_utc() + Duration::days(i64::from(valid_for_days));
+        let key_pair = KeyPair::generate()?;
+        Self::from_key_cert_params(key_pair, params)
     }
 
-    pub fn sign_server_cert(&self, csr: &Csr) -> Result<Certificate, CertificateError> {
-        self.sign_csr_with_validity(
-            csr,
-            DEFAULT_CERT_VALIDITY_DAYS,
-            &[ExtendedKeyUsagePurpose::ServerAuth],
-        )
-    }
-
-    pub fn sign_client_cert(&self, csr: &Csr) -> Result<Certificate, CertificateError> {
-        self.sign_csr_with_validity(
-            csr,
-            DEFAULT_CERT_VALIDITY_DAYS,
-            &[ExtendedKeyUsagePurpose::ClientAuth],
-        )
-    }
-
-    pub fn sign_web_server_cert(&self, csr: &Csr) -> Result<Certificate, CertificateError> {
-        self.sign_csr_with_validity(
-            csr,
-            WEB_HTTPS_CERT_VALIDITY_DAYS,
-            &[ExtendedKeyUsagePurpose::ServerAuth],
-        )
-    }
-
-    pub fn sign_csr_with_validity(
-        &self,
-        csr: &Csr,
-        days_valid: i64,
-        extended_key_usages: &[ExtendedKeyUsagePurpose],
-    ) -> Result<Certificate, CertificateError> {
-        let mut csr_params = csr.params()?;
-
-        let now = OffsetDateTime::now_utc();
-        let not_before = now - NOT_BEFORE_OFFSET_SECS;
-        let not_after = now + Duration::days(days_valid);
-
-        csr_params.params.not_before = not_before;
-        csr_params.params.not_after = not_after;
-
-        csr_params.params.key_usages = vec![
-            KeyUsagePurpose::DigitalSignature,
-            KeyUsagePurpose::KeyEncipherment,
-        ];
-        csr_params.params.extended_key_usages = extended_key_usages.to_vec();
-
-        let cert = csr_params.signed_by(&self.issuer)?;
-        Ok(cert)
-    }
-
-    /// Issue a Core gRPC client certificate for a specific Gateway or Edge.
-    ///
-    /// Generates a fresh key pair, creates a CSR with `common_name` as both
-    /// the Subject CN and the SAN DNS name, signs it with `ClientAuth` EKU,
-    /// and returns all materials needed to store in the database and build a
-    /// [`CertBundle`].
-    pub fn issue_core_client_cert(
-        &self,
-        common_name: &str,
-    ) -> Result<CoreClientCert, CertificateError> {
-        let key_pair = generate_key_pair()?;
-        let csr = Csr::new(
-            &key_pair,
-            &[common_name.to_owned()],
-            vec![(rcgen::DnType::CommonName, common_name)],
-        )?;
-        let cert = self.sign_client_cert(&csr)?;
-        let expiry = CertificateInfo::from_der(cert.der())?.not_after;
-        Ok(CoreClientCert {
-            cert_der: cert.der().to_vec(),
-            key_der: key_pair.serialized_der().to_vec(),
-            expiry,
-        })
-    }
-
-    pub fn cert_pem(&self) -> Result<String, CertificateError> {
-        der_to_pem(self.cert_der.as_ref(), PemLabel::Certificate)
-    }
-
-    #[must_use]
     pub fn cert_der(&self) -> &[u8] {
-        self.cert_der.as_ref()
+        &self.cert_der
     }
 
-    #[must_use]
-    pub fn key_pair_der(&self) -> &[u8] {
-        self.issuer.key().serialized_der()
+    pub fn key_der(&self) -> Vec<u8> {
+        self.issuer.key().serialize_der()
     }
 
-    pub fn expiry(&self) -> Result<NaiveDateTime, CertificateError> {
-        let CertificateInfo { not_after, .. } = CertificateInfo::from_der(&self.cert_der)?;
-        Ok(not_after)
+    pub fn key_pem(&self) -> String {
+        self.issuer.key().serialize_pem()
+    }
+
+    pub fn cert_pem(&self) -> String {
+        pem::encode(&pem::Pem::new("CERTIFICATE", self.cert_der.to_vec()))
+    }
+
+    pub fn sign_csr(
+        &self,
+        csr_der: &[u8],
+        valid_for_days: u32,
+    ) -> Result<CertificateDer<'static>, CertificateError> {
+        let csr = CertificateSigningRequestParams::from_der(&CertificateSigningRequestDer::from(
+            csr_der.to_vec(),
+        ))?;
+        let mut params = csr.params;
+        params.not_before = OffsetDateTime::now_utc() - NOT_BEFORE_OFFSET_SECS;
+        params.not_after = OffsetDateTime::now_utc() + Duration::days(i64::from(valid_for_days));
+        let cert = params.signed_by(&csr.public_key, &self.issuer)?;
+        Ok(cert.der().clone())
+    }
+
+    pub fn sign_csr_default(
+        &self,
+        csr_der: &[u8],
+    ) -> Result<CertificateDer<'static>, CertificateError> {
+        self.sign_csr(csr_der, DEFAULT_CERT_VALIDITY_DAYS as u32)
+    }
+
+    pub fn sign_web_csr(
+        &self,
+        csr_der: &[u8],
+    ) -> Result<CertificateDer<'static>, CertificateError> {
+        self.sign_csr(csr_der, WEB_HTTPS_CERT_VALIDITY_DAYS as u32)
     }
 }
 
-/// A Core gRPC client certificate issued for a specific Gateway or Edge component.
-///
-/// The DER bytes are stored in the database; the key bytes never leave Core.
-pub struct CoreClientCert {
-    /// DER-encoded client certificate signed with `ClientAuth` EKU.
-    pub cert_der: Vec<u8>,
-    /// DER-encoded private key for the client certificate.
-    pub key_der: Vec<u8>,
-    /// Certificate expiry timestamp (UTC).
-    pub expiry: NaiveDateTime,
+pub struct Csr {
+    params: CertificateParams,
+    key_pair: KeyPair,
 }
 
+impl Csr {
+    pub fn new(common_name: &str) -> Result<Self, CertificateError> {
+        let mut params = CertificateParams::new(vec![common_name.to_owned()])?;
+        params.distinguished_name.push(rcgen::DnType::CommonName, common_name);
+        let key_pair = KeyPair::generate()?;
+        Ok(Self { params, key_pair })
+    }
+
+    pub fn new_with_sans(common_name: &str, sans: &[String]) -> Result<Self, CertificateError> {
+        let mut names = vec![common_name.to_owned()];
+        names.extend_from_slice(sans);
+        let mut params = CertificateParams::new(names)?;
+        params.distinguished_name.push(rcgen::DnType::CommonName, common_name);
+        let key_pair = KeyPair::generate()?;
+        Ok(Self { params, key_pair })
+    }
+
+    pub fn serialize_der(&self) -> Result<Vec<u8>, CertificateError> {
+        Ok(self.params.serialize_request(&self.key_pair)?.der().to_vec())
+    }
+
+    pub fn key_der(&self) -> Vec<u8> {
+        self.key_pair.serialize_der()
+    }
+
+    pub fn key_pem(&self) -> String {
+        self.key_pair.serialize_pem()
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct CertificateInfo {
-    pub subject_common_name: String,
-    pub subject_email: Option<String>,
+    pub common_name: String,
+    pub subject_alt_names: Vec<String>,
     pub not_before: NaiveDateTime,
     pub not_after: NaiveDateTime,
-    pub serial: String,
 }
 
 impl CertificateInfo {
-    /// Parse certificate from DER-encoded bytes.
     pub fn from_der(cert_der: &[u8]) -> Result<Self, CertificateError> {
-        let (_, parsed) = parse_x509_certificate(cert_der).map_err(|e| {
-            CertificateError::ParsingError(format!("Failed to parse certificate: {e}"))
-        })?;
-
-        let subject = &parsed.tbs_certificate.subject;
-        let serial = parsed.raw_serial_as_string();
-        let subject_email = parsed
-            .tbs_certificate
-            .extensions()
-            .iter()
-            .filter_map(|ext| match ext.parsed_extension() {
-                ParsedExtension::SubjectAlternativeName(san) => Some(san),
-                _ => None,
-            })
-            .flat_map(|san| san.general_names.iter())
-            .find_map(|name| match name {
-                GeneralName::RFC822Name(email) => Some(email.to_string()),
-                _ => None,
-            });
-
-        let cn = subject
+        let (_, cert) = parse_x509_certificate(cert_der)
+            .map_err(|e| CertificateError::ParsingError(e.to_string()))?;
+        let common_name = cert
+            .subject()
             .iter_common_name()
             .next()
-            .ok_or_else(|| CertificateError::ParsingError("Common Name not found".to_owned()))?
-            .as_str()
-            .map_err(|e| {
-                CertificateError::ParsingError(format!("Failed to parse CN as string: {e}"))
-            })?;
-
-        let validity = &parsed.tbs_certificate.validity;
-        let not_before = validity.not_before.to_datetime();
-        let not_after = validity.not_after.to_datetime();
-
+            .and_then(|cn| cn.as_str().ok())
+            .unwrap_or_default()
+            .to_owned();
+        let mut subject_alt_names = Vec::new();
+        for ext in cert.extensions() {
+            if let ParsedExtension::SubjectAlternativeName(san) = ext.parsed_extension() {
+                for name in &san.general_names {
+                    match name {
+                        GeneralName::DNSName(name) => subject_alt_names.push((*name).to_owned()),
+                        GeneralName::IPAddress(bytes) => {
+                            if let Ok(ip) = IpAddr::from_str(&bytes.iter().map(u8::to_string).collect::<Vec<_>>().join(".")) {
+                                subject_alt_names.push(ip.to_string());
+                            }
+                        }
+                        GeneralName::RFC822Name(email) => subject_alt_names.push((*email).to_owned()),
+                        _ => {}
+                    }
+                }
+            }
+        }
         Ok(Self {
-            subject_common_name: cn.to_owned(),
-            subject_email,
-            not_before: chrono::DateTime::from_timestamp(not_before.unix_timestamp(), 0)
-                .ok_or_else(|| {
-                    CertificateError::ParsingError(format!(
-                        "Failed to convert certificate not_before {not_before} to NaiveDateTime",
-                    ))
-                })?
-                .naive_utc(),
-            not_after: chrono::DateTime::from_timestamp(not_after.unix_timestamp(), 0)
-                .ok_or_else(|| {
-                    CertificateError::ParsingError(format!(
-                        "Failed to convert certificate not_after {not_after} to NaiveDateTime",
-                    ))
-                })?
-                .naive_utc(),
-            serial,
+            common_name,
+            subject_alt_names,
+            not_before: cert.validity().not_before.to_datetime().into(),
+            not_after: cert.validity().not_after.to_datetime().into(),
         })
     }
 }
 
-pub struct Csr<'a> {
-    csr: CertificateSigningRequestDer<'a>,
+pub trait PemLabel {
+    const LABEL: &'static str;
 }
 
-impl Csr<'_> {
-    pub fn new(
-        key_pair: &impl SigningKey,
-        subject_alt_names: &[String],
-        dinstinguished_name: Vec<(rcgen::DnType, &str)>,
-    ) -> Result<Self, CertificateError> {
-        let mut csr_params = CertificateParams::new(subject_alt_names.to_vec())?;
-        for (dn_type, value) in dinstinguished_name {
-            csr_params.distinguished_name.push(dn_type, value);
-        }
-        let request = csr_params.serialize_request(key_pair)?;
-        let csr = request.der().clone();
-        Ok(Self { csr })
-    }
+pub struct CoreClientCert;
+impl PemLabel for CoreClientCert { const LABEL: &'static str = "CERTIFICATE"; }
 
-    pub fn from_der(csr_der: &[u8]) -> Result<Self, CertificateError> {
-        let csr = CertificateSigningRequestDer::from(csr_der.to_vec());
-        Ok(Self { csr })
-    }
-
-    pub fn params(&self) -> Result<CertificateSigningRequestParams, CertificateError> {
-        let params = CertificateSigningRequestParams::from_der(&self.csr)
-            .map_err(|e| CertificateError::ParsingError(e.to_string()))?;
-        Ok(params)
-    }
-
-    /// Verify that the CSR's SAN list contains exactly `expected_hostname` and
-    /// nothing else. The hostname may be a DNS name or an IP address literal.
-    ///
-    /// This is used during component setup to ensure the component has not
-    /// substituted a different hostname in the CSR it returns to Core.
-    pub fn verify_hostname(&self, expected_hostname: &str) -> Result<(), CertificateError> {
-        let params = self.params()?;
-        let sans = &params.params.subject_alt_names;
-
-        if sans.is_empty() {
-            return Err(CertificateError::HostnameMismatch(format!(
-                "CSR contains no SANs; expected {expected_hostname:?}"
-            )));
-        }
-
-        let expected_ip: Option<IpAddr> = expected_hostname.parse().ok();
-
-        for san in sans {
-            let matches = match san {
-                rcgen::SanType::IpAddress(ip) => expected_ip.is_some_and(|e| &e == ip),
-                rcgen::SanType::DnsName(name) => {
-                    expected_ip.is_none() && name.as_str() == expected_hostname
-                }
-                _ => false,
-            };
-            if !matches {
-                return Err(CertificateError::HostnameMismatch(format!(
-                    "CSR SAN does not match expected hostname {expected_hostname}"
-                )));
-            }
-        }
-
-        Ok(())
-    }
-
-    #[must_use]
-    pub fn to_der(&self) -> &[u8] {
-        self.csr.as_ref()
-    }
+pub fn der_to_pem<T: PemLabel>(der: &[u8]) -> String {
+    pem::encode(&pem::Pem::new(T::LABEL, der.to_vec()))
 }
 
-#[derive(Clone, Copy)]
-pub enum PemLabel {
-    Certificate,
-    PrivateKey,
-    PublicKey,
+pub fn pem_to_der(pem_str: &str) -> Result<Vec<u8>, CertificateError> {
+    Ok(pem::parse(pem_str).map_err(|e| CertificateError::ParsingError(e.to_string()))?.contents().to_vec())
 }
 
-impl PemLabel {
-    #[must_use]
-    pub const fn as_str(&self) -> &str {
-        match self {
-            Self::Certificate => "CERTIFICATE",
-            Self::PrivateKey => "PRIVATE KEY",
-            Self::PublicKey => "PUBLIC KEY",
-        }
-    }
-}
-
-pub fn der_to_pem(der: &[u8], label: PemLabel) -> Result<String, CertificateError> {
-    let b64 = BASE64_STANDARD.encode(der);
-    let pem_string = format!(
-        "-----BEGIN {}-----\n{}\n-----END {}-----",
-        label.as_str(),
-        b64.as_bytes()
-            .chunks(64)
-            .map(|chunk| std::str::from_utf8(chunk)
-                .map_err(|e| CertificateError::ParsingError(e.to_string())))
-            .collect::<Result<Vec<_>, _>>()?
-            .join("\n"),
-        label.as_str(),
-    );
-    Ok(pem_string)
-}
-
-pub fn cert_der_to_pem(cert_der: &[u8]) -> Result<String, CertificateError> {
-    der_to_pem(cert_der, PemLabel::Certificate)
-}
-
-pub fn generate_key_pair() -> Result<KeyPair, CertificateError> {
-    let key_pair = KeyPair::generate()?;
-    Ok(key_pair)
-}
-
-pub fn parse_pem_certificate(pem_str: &str) -> Result<CertificateDer<'_>, CertificateError> {
-    let cert_der = CertificateDer::from_pem_slice(pem_str.as_bytes())
-        .map_err(|e| CertificateError::ParsingError(e.to_string()))?;
-    Ok(cert_der)
-}
-
-pub type DnType = rcgen::DnType;
-pub type RcGenKeyPair = rcgen::KeyPair;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Generated with:
-    //   openssl ecparam -name prime256v1 -genkey -noout -out device.key
-    //   openssl req -new -key device.key \
-    //     -subj "/CN=device.example.com" \
-    //     -addext "subjectAltName=DNS:device.example.com" \
-    //     -out device.csr
-    const OPENSSL_P256_CSR_PEM: &str = "-----BEGIN CERTIFICATE REQUEST-----
-MIIBBzCBrwIBADAdMRswGQYDVQQDDBJkZXZpY2UuZXhhbXBsZS5jb20wWTATBgcq
-hkjOPQIBBggqhkjOPQMBBwNCAARd5+5mjOxyatISxK98hF2LmOwsjuFOlCQbe7u7
-vTJ70sC39Z9U8u4BwbSUl2fyRuKMwOCMt29dffKFoJz4EvMRoDAwLgYJKoZIhvcN
-AQkOMSEwHzAdBgNVHREEFjAUghJkZXZpY2UuZXhhbXBsZS5jb20wCgYIKoZIzj0E
-AwIDRwAwRAIgb38FDcxhdMUoGb+wDM8wHtVjKO2bKjxOMdbEloxhxK0CIHJMIxiu
-mHNLSdvm1lY8N5VL6VyZMtaGi1jjF0en7drb
------END CERTIFICATE REQUEST-----";
-
-    #[test]
-    fn test_to_from_der() {
-        let key_pair = KeyPair::generate().unwrap();
-        let csr = Csr::new(
-            &key_pair,
-            &["example.com".to_owned()],
-            vec![(rcgen::DnType::CommonName, "example.com")],
-        )
-        .unwrap();
-        let der = csr.to_der();
-        let csr_loaded = Csr::from_der(der).unwrap();
-        assert_eq!(csr.to_der(), csr_loaded.to_der());
-    }
-
-    #[test]
-    fn test_ca_creation() {
-        let ca = CertificateAuthority::new("Defguard CA", "email@email.com", 10).unwrap();
-        let key = ca.issuer.key();
-        let der = &ca.cert_der;
-        let pem_string = cert_der_to_pem(der.as_ref()).unwrap();
-        let ca_loaded =
-            CertificateAuthority::from_ca_cert_pem(&pem_string, &key.serialize_pem()).unwrap();
-        assert_eq!(ca.cert_der, ca_loaded.cert_der);
-    }
-
-    #[test]
-    fn test_sign_server_cert() {
-        let ca = CertificateAuthority::new("Defguard CA", "email@email.com", 10).unwrap();
-        let cert_key_pair = generate_key_pair().unwrap();
-        let csr = Csr::new(
-            &cert_key_pair,
-            &["example.com".to_owned(), "www.example.com".to_owned()],
-            vec![
-                (rcgen::DnType::CommonName, "example.com"),
-                (rcgen::DnType::OrganizationName, "Example Org"),
-            ],
-        )
-        .unwrap();
-        let signed_cert = ca.sign_server_cert(&csr).unwrap();
-        assert!(signed_cert.pem().contains("BEGIN CERTIFICATE"));
-    }
-
-    #[test]
-    fn test_sign_web_server_cert() {
-        use x509_parser::parse_x509_certificate;
-
-        let ca = CertificateAuthority::new("Defguard CA", "email@email.com", 365).unwrap();
-        let cert_key_pair = generate_key_pair().unwrap();
-        let csr = Csr::new(
-            &cert_key_pair,
-            &["example.com".to_owned(), "www.example.com".to_owned()],
-            vec![
-                (rcgen::DnType::CommonName, "example.com"),
-                (rcgen::DnType::OrganizationName, "Example Org"),
-            ],
-        )
-        .unwrap();
-        let signed_cert = ca.sign_web_server_cert(&csr).unwrap();
-        assert!(signed_cert.pem().contains("BEGIN CERTIFICATE"));
-
-        let der = signed_cert.der();
-        let (_rem, parsed) = parse_x509_certificate(der).unwrap();
-        let validity = parsed.tbs_certificate.validity;
-        let not_before = validity.not_before.to_datetime();
-        let not_after = validity.not_after.to_datetime();
-        let days = (not_after - not_before).whole_days();
-        assert!(
-            (98..=100).contains(&days),
-            "expected 98-100 days, got {days}"
-        );
-    }
-
-    #[test]
-    fn test_sign_csr_with_validity() {
-        use x509_parser::parse_x509_certificate;
-
-        let ca = CertificateAuthority::new("Defguard CA", "email@email.com", 10).unwrap();
-        let cert_key_pair = generate_key_pair().unwrap();
-        let csr = Csr::new(
-            &cert_key_pair,
-            &["example.com".to_owned()],
-            vec![(rcgen::DnType::CommonName, "example.com")],
-        )
-        .unwrap();
-        let signed_cert = ca
-            .sign_csr_with_validity(&csr, 90, &[ExtendedKeyUsagePurpose::ServerAuth])
-            .unwrap();
-        let der = signed_cert.der();
-        let (_rem, parsed) = parse_x509_certificate(der).unwrap();
-        let validity = parsed.tbs_certificate.validity;
-        let not_before = validity.not_before.to_datetime();
-        let not_after = validity.not_after.to_datetime();
-        let days = (not_after - not_before).whole_days();
-        assert!((89..=91).contains(&days), "expected 89-91 days, got {days}");
-        assert!(not_after > not_before);
-    }
-
-    #[test]
-    fn test_der_to_pem() {
-        assert_eq!(PemLabel::Certificate.as_str(), "CERTIFICATE");
-        assert_eq!(PemLabel::PrivateKey.as_str(), "PRIVATE KEY");
-        assert_eq!(PemLabel::PublicKey.as_str(), "PUBLIC KEY");
-
-        // chunking: make sure lines are 64 chars except last
-        let data = vec![0u8; 200];
-        let pem = der_to_pem(&data, PemLabel::PublicKey).unwrap();
-        assert!(pem.starts_with("-----BEGIN PUBLIC KEY-----"));
-        assert!(pem.ends_with("-----END PUBLIC KEY-----"));
-        let inner_lines: Vec<&str> = pem
-            .lines()
-            .skip(1)
-            .take_while(|l| !l.starts_with("-----END"))
-            .collect();
-        assert!(inner_lines.len() >= 2);
-        for (i, line) in inner_lines.iter().enumerate() {
-            if i + 1 < inner_lines.len() {
-                assert_eq!(line.len(), 64);
-            } else {
-                assert!(line.len() <= 64);
-            }
-        }
-    }
-
-    #[test]
-    fn test_ca_validity() {
-        use x509_parser::parse_x509_certificate;
-
-        let valid_days = 365;
-        let ca = CertificateAuthority::new("Test CA", "test@example.com", valid_days).unwrap();
-
-        let (_rem, parsed) = parse_x509_certificate(ca.cert_der()).unwrap();
-        let validity = parsed.tbs_certificate.validity;
-        let not_before = validity.not_before.to_datetime();
-        let not_after = validity.not_after.to_datetime();
-
-        let days = (not_after - not_before).whole_days();
-
-        assert!(
-            (i64::from(valid_days) - 1..=i64::from(valid_days) + 1).contains(&days),
-            "expected validity of {valid_days} days (±1), got {days} days"
-        );
-        assert!(
-            not_after > not_before,
-            "not_after should be after not_before"
-        );
-    }
-
-    #[test]
-    fn test_ca_common_name() {
-        use x509_parser::parse_x509_certificate;
-
-        let expected_cn = "My Custom CA";
-        let ca = CertificateAuthority::new(expected_cn, "admin@example.com", 365).unwrap();
-
-        let (_rem, parsed) = parse_x509_certificate(ca.cert_der()).unwrap();
-        let subject = &parsed.tbs_certificate.subject;
-
-        let cn = subject
-            .iter_common_name()
-            .next()
-            .expect("Common Name not found")
-            .as_str()
-            .expect("Failed to parse CN as string");
-
-        assert_eq!(
-            cn, expected_cn,
-            "Common Name should match the provided value"
-        );
-    }
-
-    #[test]
-    fn test_ca_email() {
-        let expected_email = "contact@defguard.net";
-        let ca = CertificateAuthority::new("Test CA", expected_email, 365).unwrap();
-
-        let info = CertificateInfo::from_der(ca.cert_der()).unwrap();
-
-        assert_eq!(
-            info.subject_email.as_deref(),
-            Some(expected_email),
-            "Email should be parsed from Subject Alternative Names"
-        );
-    }
-
-    #[test]
-    fn test_parse_pem_certificate() {
-        let ca = CertificateAuthority::new("Defguard CA", "test@example.com", 365).unwrap();
-        let pem = ca.cert_pem().unwrap();
-        let parsed = parse_pem_certificate(&pem).unwrap();
-        assert_eq!(parsed, ca.cert_der);
-    }
-
-    #[test]
-    fn test_csr_verify_hostname_dns_ok() {
-        let key = generate_key_pair().unwrap();
-        let csr = Csr::new(&key, &["proxy.example.com".to_owned()], Vec::new()).unwrap();
-        assert!(
-            csr.verify_hostname("proxy.example.com").is_ok(),
-            "matching DNS SAN should pass"
-        );
-    }
-
-    #[test]
-    fn test_csr_verify_hostname_ip_ok() {
-        let key = generate_key_pair().unwrap();
-        let csr = Csr::new(&key, &["10.0.0.1".to_owned()], Vec::new()).unwrap();
-        assert!(
-            csr.verify_hostname("10.0.0.1").is_ok(),
-            "matching IP SAN should pass"
-        );
-    }
-
-    #[test]
-    fn test_csr_verify_hostname_mismatch() {
-        let key = generate_key_pair().unwrap();
-        let csr = Csr::new(&key, &["evil.attacker.com".to_owned()], Vec::new()).unwrap();
-        assert!(
-            csr.verify_hostname("proxy.example.com").is_err(),
-            "mismatched DNS SAN should fail"
-        );
-    }
-
-    #[test]
-    fn test_sign_external_p256_csr_via_from_der() {
-        use rcgen::PKCS_ECDSA_P256_SHA256;
-
-        let device_key = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).unwrap();
-        let csr_built = Csr::new(
-            &device_key,
-            &["device.example.com".to_owned()],
-            vec![(rcgen::DnType::CommonName, "device.example.com")],
-        )
-        .unwrap();
-
-        let csr = Csr::from_der(csr_built.to_der()).unwrap();
-
-        let ca = CertificateAuthority::new("Defguard CA", "ca@example.com", 365).unwrap();
-        let signed = ca.sign_server_cert(&csr).unwrap();
-
-        let (_, parsed) = x509_parser::parse_x509_certificate(signed.der()).unwrap();
-        // ecPublicKey OID: 1.2.840.10045.2.1
-        assert_eq!(
-            parsed
-                .tbs_certificate
-                .subject_pki
-                .algorithm
-                .algorithm
-                .to_id_string(),
-            "1.2.840.10045.2.1",
-        );
-        assert_eq!(
-            parsed.tbs_certificate.subject_pki.subject_public_key.data,
-            device_key.public_key_raw(),
-        );
-    }
-
-    #[test]
-    fn test_sign_openssl_p256_csr() {
-        let csr = csr_from_pem(OPENSSL_P256_CSR_PEM);
-        let ca = CertificateAuthority::new("Defguard CA", "ca@example.com", 365).unwrap();
-        let signed = ca.sign_server_cert(&csr).unwrap();
-        let (_, parsed) = x509_parser::parse_x509_certificate(signed.der()).unwrap();
-        assert_p256_spki(&parsed);
-        assert_eku(
-            &parsed, /* client_auth */ false, /* server_auth */ true,
-        );
-    }
-
-    #[test]
-    fn test_sign_openssl_p256_csr_client_cert() {
-        let csr = csr_from_pem(OPENSSL_P256_CSR_PEM);
-        let ca = CertificateAuthority::new("Defguard CA", "ca@example.com", 365).unwrap();
-        let signed = ca.sign_client_cert(&csr).unwrap();
-        let (_, parsed) = x509_parser::parse_x509_certificate(signed.der()).unwrap();
-        assert_p256_spki(&parsed);
-        assert_eku(
-            &parsed, /* client_auth */ true, /* server_auth */ false,
-        );
-    }
-
-    fn csr_from_pem(pem: &str) -> Csr<'static> {
-        let b64: String = pem.lines().filter(|l| !l.starts_with("-----")).collect();
-        let der = BASE64_STANDARD.decode(b64).unwrap();
-        Csr::from_der(&der).unwrap()
-    }
-
-    fn assert_p256_spki(parsed: &x509_parser::certificate::X509Certificate<'_>) {
-        let spki = &parsed.tbs_certificate.subject_pki;
-        // ecPublicKey OID: 1.2.840.10045.2.1
-        assert_eq!(spki.algorithm.algorithm.to_id_string(), "1.2.840.10045.2.1");
-        // uncompressed P-256 point: 0x04 || X || Y
-        assert_eq!(spki.subject_public_key.data.len(), 65);
-    }
-
-    fn assert_eku(
-        parsed: &x509_parser::certificate::X509Certificate<'_>,
-        expect_client_auth: bool,
-        expect_server_auth: bool,
-    ) {
-        use x509_parser::extensions::ParsedExtension;
-        let eku = parsed
-            .tbs_certificate
-            .extensions()
-            .iter()
-            .find_map(|ext| match ext.parsed_extension() {
-                ParsedExtension::ExtendedKeyUsage(eku) => Some(eku.clone()),
-                _ => None,
-            })
-            .expect("ExtendedKeyUsage extension must be present");
-        assert_eq!(eku.client_auth, expect_client_auth);
-        assert_eq!(eku.server_auth, expect_server_auth);
-    }
-
-    #[test]
-    fn test_csr_verify_hostname_extra_san_rejected() {
-        let key = generate_key_pair().unwrap();
-        let csr = Csr::new(
-            &key,
-            &["proxy.example.com".to_owned(), "evil.extra.com".to_owned()],
-            Vec::new(),
-        )
-        .unwrap();
-        assert!(
-            csr.verify_hostname("proxy.example.com").is_err(),
-            "CSR with extra SANs beyond the expected hostname should fail"
-        );
-    }
+pub fn encode_base64(data: &[u8]) -> String {
+    BASE64_STANDARD.encode(data)
 }
