@@ -196,7 +196,7 @@ fn public_provider(provider: SMetricOidcProvider) -> PublicProvider {
     }
 }
 
-pub(crate) async fn add_openid_provider(
+pub async fn add_openid_provider(
     _admin: AdminRole,
     _session: SessionInfo,
     State(appstate): State<AppState>,
@@ -232,7 +232,7 @@ pub(crate) async fn add_openid_provider(
     Ok(ApiResponse::json(provider_json(&provider), StatusCode::CREATED))
 }
 
-pub(crate) async fn modify_openid_provider(
+pub async fn modify_openid_provider(
     _admin: AdminRole,
     _session: SessionInfo,
     State(appstate): State<AppState>,
@@ -276,7 +276,7 @@ pub(crate) async fn modify_openid_provider(
     Ok(ApiResponse::json(provider_json(&provider), StatusCode::OK))
 }
 
-pub(crate) async fn get_openid_provider(
+pub async fn get_openid_provider(
     _admin: AdminRole,
     State(appstate): State<AppState>,
     Path(name): Path<String>,
@@ -287,7 +287,7 @@ pub(crate) async fn get_openid_provider(
     }
 }
 
-pub(crate) async fn get_current_openid_provider(
+pub async fn get_current_openid_provider(
     _admin: AdminRole,
     State(appstate): State<AppState>,
 ) -> ApiResult {
@@ -297,7 +297,7 @@ pub(crate) async fn get_current_openid_provider(
     }
 }
 
-pub(crate) async fn list_openid_providers(
+pub async fn list_openid_providers(
     _admin: AdminRole,
     State(appstate): State<AppState>,
 ) -> ApiResult {
@@ -306,7 +306,7 @@ pub(crate) async fn list_openid_providers(
     Ok(ApiResponse::json(response, StatusCode::OK))
 }
 
-pub(crate) async fn delete_openid_provider(
+pub async fn delete_openid_provider(
     _admin: AdminRole,
     _session: SessionInfo,
     State(appstate): State<AppState>,
@@ -322,7 +322,7 @@ pub(crate) async fn delete_openid_provider(
     }
 }
 
-pub(crate) async fn test_dirsync_connection(
+pub async fn test_dirsync_connection(
     _admin: AdminRole,
     _session: SessionInfo,
     State(_appstate): State<AppState>,
