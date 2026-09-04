@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import api from '../../../../shared/api/api';
 import {
   type BrandingConfig,
   branding,
+  clearLocalBrandingOverride,
   hydrateBrandingFromServer,
   resetBranding,
   saveBranding,
+  toServerBranding,
 } from '../../../../shared/branding/branding';
 
 const fields: Array<{ key: keyof BrandingConfig; label: string; placeholder?: string }> = [
@@ -46,13 +47,17 @@ export const SettingsBrandingTab = () => {
     setSaving(true);
     setStatus('');
     try {
-      await api.settings.patchSettings({
-        instance_name: form.productName,
-        main_logo_url: form.logoUrl,
-        nav_logo_url: form.navLogoUrl || form.logoUrl,
+      const response = await fetch('/api/v1/branding', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(toServerBranding(form)),
       });
+      if (!response.ok) throw new Error(`Branding save failed with ${response.status}`);
+      clearLocalBrandingOverride();
       saveBranding(form);
-      setStatus('Saved for this Defguard Core instance. Other browsers will receive the shared name and logos.');
+      clearLocalBrandingOverride();
+      setStatus('Branding saved to Core. The complete configuration is now shared across browsers.');
     } catch {
       setStatus('Core save failed. No server branding changes were applied.');
     } finally {
@@ -61,17 +66,34 @@ export const SettingsBrandingTab = () => {
   };
 
   const onReset = async () => {
-    const next = resetBranding();
-    setForm(next);
-    setStatus('Deployment defaults restored locally. Save to publish them to Core.');
+    setSaving(true);
+    setStatus('');
+    try {
+      const response = await fetch('/api/v1/branding', {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) throw new Error(`Branding reset failed with ${response.status}`);
+      clearLocalBrandingOverride();
+      const next = resetBranding();
+      clearLocalBrandingOverride();
+      await hydrateBrandingFromServer();
+      setForm({ ...branding });
+      setStatus('Branding reset to the Core defaults.');
+      return next;
+    } catch {
+      setStatus('Core reset failed. Branding was not changed.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div style={{ paddingTop: 24, maxWidth: 980 }}>
       <h2 style={{ marginBottom: 8 }}>White-label branding</h2>
       <p style={{ marginBottom: 24 }}>
-        Product name and main/navigation logos are stored in Core and shared with every browser.
-        Additional presentation fields remain deployment/browser overrides until their server schema is added.
+        This configuration is stored in Core and shared across browsers. Runtime branding.js values remain a fallback when Core is unavailable.
       </p>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(280px, 0.8fr)', gap: 32 }}>
         <div style={{ display: 'grid', gap: 16 }}>
@@ -91,7 +113,7 @@ export const SettingsBrandingTab = () => {
               {saving ? 'Saving…' : 'Save branding'}
             </button>
             <button type="button" disabled={saving} onClick={() => void onReset()} style={{ padding: '10px 18px', cursor: 'pointer' }}>
-              Reset to deployment defaults
+              Reset branding
             </button>
             {status && <span>{status}</span>}
           </div>
