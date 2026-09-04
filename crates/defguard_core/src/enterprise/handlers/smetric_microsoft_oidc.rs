@@ -17,8 +17,7 @@ use defguard_common::{
 };
 use openidconnect::{
     AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndpointMaybeSet, EndpointNotSet,
-    EndpointSet, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier,
-    RedirectUrl, Scope,
+    EndpointSet, IssuerUrl, Nonce, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope,
     core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata},
 };
 use reqwest::Url;
@@ -520,7 +519,8 @@ async fn resolve_user(
             return Err(WebError::Authorization("User is disabled".into()));
         }
         user.openid_sub = Some(provider_subject);
-        return Ok(user.save(pool).await?);
+        user.save(pool).await?;
+        return Ok(user);
     }
 
     if !provider.auto_create {
