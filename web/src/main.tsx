@@ -9,12 +9,16 @@ import {
   hydrateBrandingFromServer,
 } from './shared/branding/branding.ts';
 
-applyBrandingToDocument();
-void hydrateBrandingFromServer();
+const bootstrap = async () => {
+  applyBrandingToDocument();
+  await hydrateBrandingFromServer();
 
-// biome-ignore lint/style/noNonNullAssertion: always there
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+  // biome-ignore lint/style/noNonNullAssertion: always there
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+};
+
+void bootstrap();
