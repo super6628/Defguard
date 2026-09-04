@@ -39,6 +39,7 @@ type ServerBranding = {
 };
 
 const STORAGE_KEY = 'white-label-branding';
+const originalFavicons = new Map<HTMLLinkElement, string>();
 
 export const brandingDefaults: BrandingConfig = {
   companyName: 'S-Metric',
@@ -126,6 +127,12 @@ export const branding: BrandingConfig = {
   ...readSavedBranding(),
 };
 
+const notifyBrandingUpdated = () => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('branding-updated'));
+  }
+};
+
 export const applyBrandingToDocument = () => {
   if (typeof document === 'undefined') return;
   document.title = branding.productName;
@@ -133,16 +140,23 @@ export const applyBrandingToDocument = () => {
   if (appName) appName.content = branding.productName;
   const author = document.querySelector<HTMLMetaElement>('meta[name="author"]');
   if (author) author.content = branding.companyName;
-  if (branding.faviconUrl) {
-    document.querySelectorAll<HTMLLinkElement>('link[rel*="icon"]').forEach((link) => {
-      link.href = branding.faviconUrl;
-    });
-  }
+
+  document.querySelectorAll<HTMLLinkElement>('link[rel*="icon"]').forEach((link) => {
+    if (!originalFavicons.has(link)) originalFavicons.set(link, link.href);
+    link.href = branding.faviconUrl || originalFavicons.get(link) || link.href;
+  });
+
   if (branding.primaryColor) {
     document.documentElement.style.setProperty('--brand-primary', branding.primaryColor);
   } else {
     document.documentElement.style.removeProperty('--brand-primary');
   }
+};
+
+export const applyBranding = (next: BrandingConfig) => {
+  Object.assign(branding, next);
+  applyBrandingToDocument();
+  notifyBrandingUpdated();
 };
 
 export const hydrateBrandingFromServer = async () => {
@@ -154,25 +168,29 @@ export const hydrateBrandingFromServer = async () => {
     });
     if (!response.ok) return branding;
     const server = fromServerBranding((await response.json()) as ServerBranding);
-    Object.assign(branding, {
+    // Core is authoritative after a successful fetch. Browser-local data is only a
+    // startup fallback for deployments where Core is temporarily unavailable.
+    clearLocalBrandingOverride();
+    applyBranding({
       ...brandingDefaults,
       ...deploymentBranding(),
       ...server,
-      ...readSavedBranding(),
     });
-    applyBrandingToDocument();
-    window.dispatchEvent(new CustomEvent('branding-updated'));
   } catch {
-    // Keep deployment defaults when Core is unavailable during startup.
+    // Keep deployment/local fallback values when Core is unavailable during startup.
   }
   return branding;
 };
 
+// Retained for callers that explicitly want a browser-local fallback. Server-backed
+// settings should use applyBranding() instead.
 export const saveBranding = (next: BrandingConfig) => {
   Object.assign(branding, next);
-  if (typeof window !== 'undefined') window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  }
   applyBrandingToDocument();
-  window.dispatchEvent(new CustomEvent('branding-updated'));
+  notifyBrandingUpdated();
 };
 
 export const clearLocalBrandingOverride = () => {
@@ -184,9 +202,7 @@ export const resetBranding = () => {
     ...brandingDefaults,
     ...deploymentBranding(),
   };
-  Object.assign(branding, next);
   clearLocalBrandingOverride();
-  applyBrandingToDocument();
-  window.dispatchEvent(new CustomEvent('branding-updated'));
+  applyBranding(next);
   return next;
 };
