@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { type ReactNode, useEffect, useMemo } from 'react';
 import { m } from '../../../paraglide/messages';
+import { branding } from '../../../shared/branding/branding';
 import { Controls } from '../../../shared/components/Controls/Controls';
 import type { WizardPageStep } from '../../../shared/components/wizard/types';
 import { WizardPage } from '../../../shared/components/wizard/WizardPage/WizardPage';
@@ -34,7 +35,7 @@ const WelcomePageContent = () => (
   <div className="left">
     <Divider spacing={ThemeSpacing.Xl2} />
     <Controls>
-      <Button text="Configure S-Metric Secure" onClick={handleStartWizard} />
+      <Button text={branding.setupButtonText} onClick={handleStartWizard} />
     </Controls>
   </div>
 );
@@ -47,78 +48,18 @@ export const SetupPage = () => {
 
   const stepsConfig = useMemo(
     (): Record<SetupPageStepValue, WizardPageStep> => ({
-      adminUser: {
-        id: SetupPageStep.AdminUser,
-        order: 1,
-        label: m.initial_setup_step_admin_user_label(),
-        description: m.initial_setup_step_admin_user_description(),
-      },
-      generalConfig: {
-        id: SetupPageStep.GeneralConfig,
-        order: 2,
-        label: m.initial_setup_step_general_config_label(),
-        description: m.initial_setup_step_general_config_description(),
-      },
-      certificateAuthority: {
-        id: SetupPageStep.CertificateAuthority,
-        order: 3,
-        label: m.initial_setup_step_certificate_authority_label(),
-        description: m.initial_setup_step_certificate_authority_description(),
-      },
-      certificateAuthoritySummary: {
-        id: SetupPageStep.CASummary,
-        order: 4,
-        label: m.initial_setup_step_certificate_authority_summary_label(),
-        description: m.initial_setup_step_certificate_authority_summary_description(),
-      },
-      edgeDeploy: {
-        id: SetupPageStep.EdgeDeploy,
-        order: 5,
-        label: m.initial_setup_step_edge_deploy_label(),
-        description: m.initial_setup_step_edge_deploy_description(),
-      },
-      edgeComponent: {
-        id: SetupPageStep.EdgeComponent,
-        order: 6,
-        label: m.initial_setup_step_edge_component_label(),
-        description: m.initial_setup_step_edge_component_description(),
-      },
-      edgeAdoption: {
-        id: SetupPageStep.EdgeAdoption,
-        order: 7,
-        label: m.initial_setup_step_edge_adoption_label(),
-        description: m.initial_setup_step_edge_adoption_description(),
-      },
-      internalUrlSettings: {
-        id: SetupPageStep.InternalUrlSettings,
-        order: 8,
-        label: m.initial_setup_step_internal_url_settings_label(),
-        description: m.initial_setup_step_internal_url_settings_description(),
-      },
-      internalUrlSslConfig: {
-        id: SetupPageStep.InternalUrlSslConfig,
-        order: 9,
-        label: m.initial_setup_step_internal_url_ssl_config_label(),
-        description: m.initial_setup_step_internal_url_ssl_config_description(),
-      },
-      externalUrlSettings: {
-        id: SetupPageStep.ExternalUrlSettings,
-        order: 10,
-        label: m.initial_setup_step_external_url_settings_label(),
-        description: m.initial_setup_step_external_url_settings_description(),
-      },
-      externalUrlSslConfig: {
-        id: SetupPageStep.ExternalUrlSslConfig,
-        order: 11,
-        label: m.initial_setup_step_external_url_ssl_config_label(),
-        description: m.initial_setup_step_external_url_ssl_config_description(),
-      },
-      confirmation: {
-        id: SetupPageStep.Confirmation,
-        order: 12,
-        label: m.initial_setup_step_confirmation_label(),
-        description: m.initial_setup_step_confirmation_description(),
-      },
+      adminUser: { id: SetupPageStep.AdminUser, order: 1, label: m.initial_setup_step_admin_user_label(), description: m.initial_setup_step_admin_user_description() },
+      generalConfig: { id: SetupPageStep.GeneralConfig, order: 2, label: m.initial_setup_step_general_config_label(), description: m.initial_setup_step_general_config_description() },
+      certificateAuthority: { id: SetupPageStep.CertificateAuthority, order: 3, label: m.initial_setup_step_certificate_authority_label(), description: m.initial_setup_step_certificate_authority_description() },
+      certificateAuthoritySummary: { id: SetupPageStep.CASummary, order: 4, label: m.initial_setup_step_certificate_authority_summary_label(), description: m.initial_setup_step_certificate_authority_summary_description() },
+      edgeDeploy: { id: SetupPageStep.EdgeDeploy, order: 5, label: m.initial_setup_step_edge_deploy_label(), description: m.initial_setup_step_edge_deploy_description() },
+      edgeComponent: { id: SetupPageStep.EdgeComponent, order: 6, label: m.initial_setup_step_edge_component_label(), description: m.initial_setup_step_edge_component_description() },
+      edgeAdoption: { id: SetupPageStep.EdgeAdoption, order: 7, label: m.initial_setup_step_edge_adoption_label(), description: m.initial_setup_step_edge_adoption_description() },
+      internalUrlSettings: { id: SetupPageStep.InternalUrlSettings, order: 8, label: m.initial_setup_step_internal_url_settings_label(), description: m.initial_setup_step_internal_url_settings_description() },
+      internalUrlSslConfig: { id: SetupPageStep.InternalUrlSslConfig, order: 9, label: m.initial_setup_step_internal_url_ssl_config_label(), description: m.initial_setup_step_internal_url_ssl_config_description() },
+      externalUrlSettings: { id: SetupPageStep.ExternalUrlSettings, order: 10, label: m.initial_setup_step_external_url_settings_label(), description: m.initial_setup_step_external_url_settings_description() },
+      externalUrlSslConfig: { id: SetupPageStep.ExternalUrlSslConfig, order: 11, label: m.initial_setup_step_external_url_ssl_config_label(), description: m.initial_setup_step_external_url_ssl_config_description() },
+      confirmation: { id: SetupPageStep.Confirmation, order: 12, label: m.initial_setup_step_confirmation_label(), description: m.initial_setup_step_confirmation_description() },
     }),
     [],
   );
@@ -152,16 +93,15 @@ export const SetupPage = () => {
   return (
     <WizardPage
       activeStep={activeStep}
-      subtitle="This wizard will guide you through the initial configuration of your S-Metric Secure instance."
+      subtitle={`This wizard will guide you through the initial configuration of your ${branding.productName} instance.`}
       title="Initial Setup Wizard"
       steps={stepsConfig}
       id="setup-wizard"
       videoGuidePlacementKey="initialSetupWizard"
       isOnWelcomePage={isOnWelcomePage}
       welcomePageConfig={{
-        title: 'Welcome to S-Metric Secure!',
-        subtitle:
-          'This wizard walks you through the steps to configure your S-Metric Secure instance, connect all necessary components (Edge, Gateway), and finally set up a VPN Location.',
+        title: branding.setupTitle,
+        subtitle: branding.setupSubtitle,
         content: <WelcomePageContent />,
         media: <img src={worldMap} alt="World map" />,
       }}
