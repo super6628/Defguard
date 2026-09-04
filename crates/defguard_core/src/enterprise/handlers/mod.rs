@@ -148,7 +148,7 @@ where
                 "tier": "Enterprise",
                 "support_type": "DirectEnterprise",
                 "limits": {
-                    "users": {"current": 12, "limit": 4294967295},
+                    "users": {"current": 12, "limit": 4294967295u32},
                     "locations": {"current": 2, "limit": 10},
                     "user_devices": null,
                     "network_devices": null,
