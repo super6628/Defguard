@@ -21,20 +21,12 @@ pub enum GatewayEnforcementError {
     Service(#[from] ServiceError),
     #[error("S-Metric ACL policy {0} is not assigned to any enabled VPN location")]
     NoAssignments(i64),
-    #[error(
-        "rule {rule_id} uses source selector '{selector}', which is not yet supported by gateway enforcement"
-    )]
-    UnsupportedSourceSelector {
-        rule_id: i64,
-        selector: &'static str,
-    },
-    #[error(
-        "rule {rule_id} uses destination selector '{selector}', which is not yet supported by gateway enforcement"
-    )]
-    UnsupportedDestinationSelector {
-        rule_id: i64,
-        selector: &'static str,
-    },
+    #[error("rule {rule_id} source selector '{selector}' resolved to no VPN addresses at location {location_id}")]
+    EmptySourceResolution { rule_id: i64, selector: String, location_id: i64 },
+    #[error("rule {rule_id} uses source selector '{selector}', which is not yet supported by gateway enforcement")]
+    UnsupportedSourceSelector { rule_id: i64, selector: &'static str },
+    #[error("rule {rule_id} uses destination selector '{selector}', which is not yet supported by gateway enforcement")]
+    UnsupportedDestinationSelector { rule_id: i64, selector: &'static str },
     #[error("rule {0} uses REJECT, but the current gateway protocol supports ALLOW/DENY only")]
     RejectUnsupported(i64),
     #[error("rule {0} mixes IPv4 and IPv6 selectors")]
@@ -44,204 +36,91 @@ pub enum GatewayEnforcementError {
 }
 
 #[derive(Clone, Debug)]
-pub struct GatewayDeployment {
-    pub location_id: i64,
-    pub command: GatewayCommand,
-}
+pub struct GatewayDeployment { pub location_id: i64, pub command: GatewayCommand }
 
-pub async fn prepare_deployments(
-    pool: &PgPool,
-    policy_id: i64,
-) -> Result<Vec<GatewayDeployment>, GatewayEnforcementError> {
+pub async fn prepare_deployments(pool: &PgPool, policy_id: i64) -> Result<Vec<GatewayDeployment>, GatewayEnforcementError> {
     let policy = compile(load_policy(pool, policy_id).await?).map_err(ServiceError::Validation)?;
-    let config = translate_policy(&policy)?;
-    let location_ids = sqlx::query_scalar::<_, i64>(
-        "SELECT location_id FROM smetric_acl_policy_assignment WHERE policy_id = $1 AND enabled = TRUE ORDER BY location_id",
-    )
-    .bind(policy_id)
-    .fetch_all(pool)
-    .await?;
-
-    if location_ids.is_empty() {
-        return Err(GatewayEnforcementError::NoAssignments(policy_id));
+    let location_ids = sqlx::query_scalar::<_, i64>("SELECT location_id FROM smetric_acl_policy_assignment WHERE policy_id = $1 AND enabled = TRUE ORDER BY location_id")
+        .bind(policy_id).fetch_all(pool).await?;
+    if location_ids.is_empty() { return Err(GatewayEnforcementError::NoAssignments(policy_id)); }
+    let mut deployments = Vec::with_capacity(location_ids.len());
+    for location_id in location_ids {
+        let config = translate_policy_for_location(pool, &policy, location_id).await?;
+        deployments.push(GatewayDeployment { location_id, command: GatewayCommand::FirewallConfigChanged(location_id, config) });
     }
-
-    Ok(location_ids
-        .into_iter()
-        .map(|location_id| GatewayDeployment {
-            location_id,
-            command: GatewayCommand::FirewallConfigChanged(location_id, config.clone()),
-        })
-        .collect())
+    Ok(deployments)
 }
 
-pub fn translate_policy(
-    policy: &CompiledPolicy,
-) -> Result<FirewallConfig, GatewayEnforcementError> {
-    let default_policy = match policy.default_action {
-        DefaultAction::Allow => FirewallPolicy::Allow,
-        DefaultAction::Deny => FirewallPolicy::Deny,
-    };
-
+pub async fn translate_policy_for_location(pool: &PgPool, policy: &CompiledPolicy, location_id: i64) -> Result<FirewallConfig, GatewayEnforcementError> {
+    let default_policy = match policy.default_action { DefaultAction::Allow => FirewallPolicy::Allow, DefaultAction::Deny => FirewallPolicy::Deny };
     let mut rules = Vec::with_capacity(policy.rules.len());
-    for rule in &policy.rules {
-        rules.push(translate_rule(rule, policy.revision)?);
-    }
-
-    Ok(FirewallConfig {
-        default_policy,
-        rules,
-        snat_bindings: Vec::new(),
-    })
+    for rule in &policy.rules { rules.push(translate_rule(pool, rule, policy.revision, location_id).await?); }
+    Ok(FirewallConfig { default_policy, rules, snat_bindings: Vec::new() })
 }
 
-fn translate_rule(rule: &Rule, revision: u64) -> Result<FirewallRule, GatewayEnforcementError> {
-    let (source_addrs, source_version) = translate_source(rule)?;
+async fn translate_rule(pool: &PgPool, rule: &Rule, revision: u64, location_id: i64) -> Result<FirewallRule, GatewayEnforcementError> {
+    let (source_addrs, source_version) = translate_source(pool, rule, location_id).await?;
     let (destination_addrs, destination_version) = translate_destination(rule)?;
     let ip_version = merge_ip_versions(rule.id, source_version, destination_version)?;
-
     let destination_ports = match &rule.ports {
         Some(ports) if ports.start == ports.end => vec![Port::Single(u32::from(ports.start))],
-        Some(ports) => vec![Port::Range(GatewayPortRange {
-            start: u32::from(ports.start),
-            end: u32::from(ports.end),
-        })],
+        Some(ports) => vec![Port::Range(GatewayPortRange { start: u32::from(ports.start), end: u32::from(ports.end) })],
         None => Vec::new(),
     };
-
-    let protocols = match rule.protocol {
-        Protocol::Any => Vec::new(),
-        Protocol::Tcp => vec![GatewayProtocol::Tcp],
-        Protocol::Udp => vec![GatewayProtocol::Udp],
-        Protocol::Icmp => vec![GatewayProtocol::Icmp],
-    };
-
-    let verdict = match rule.action {
-        Action::Allow => FirewallPolicy::Allow,
-        Action::Deny => FirewallPolicy::Deny,
-        Action::Reject => return Err(GatewayEnforcementError::RejectUnsupported(rule.id)),
-    };
-
-    Ok(FirewallRule {
-        id: rule.id,
-        source_addrs,
-        destination_addrs,
-        destination_ports,
-        protocols,
-        verdict,
-        comment: Some(format!(
-            "S-Metric ACL rev {revision} priority {} - {}",
-            rule.priority, rule.name
-        )),
-        ip_version,
-    })
+    let protocols = match rule.protocol { Protocol::Any => Vec::new(), Protocol::Tcp => vec![GatewayProtocol::Tcp], Protocol::Udp => vec![GatewayProtocol::Udp], Protocol::Icmp => vec![GatewayProtocol::Icmp] };
+    let verdict = match rule.action { Action::Allow => FirewallPolicy::Allow, Action::Deny => FirewallPolicy::Deny, Action::Reject => return Err(GatewayEnforcementError::RejectUnsupported(rule.id)) };
+    Ok(FirewallRule { id: rule.id, source_addrs, destination_addrs, destination_ports, protocols, verdict, comment: Some(format!("S-Metric ACL rev {revision} priority {} - {}", rule.priority, rule.name)), ip_version })
 }
 
-fn translate_source(rule: &Rule) -> Result<(Vec<IpAddress>, IpVersion), GatewayEnforcementError> {
+async fn translate_source(pool: &PgPool, rule: &Rule, location_id: i64) -> Result<(Vec<IpAddress>, IpVersion), GatewayEnforcementError> {
     match &rule.source {
         Subject::Any => Ok((Vec::new(), IpVersion::Unspecified)),
-        Subject::Cidr(value) => {
-            let network = IpNetwork::from_str(value)
-                .map_err(|_| GatewayEnforcementError::InvalidAddress(rule.id))?;
-            Ok((
-                vec![IpAddress::IpSubnet(value.clone())],
-                network_version(network),
-            ))
-        }
-        Subject::User(_) => Err(GatewayEnforcementError::UnsupportedSourceSelector {
-            rule_id: rule.id,
-            selector: "user",
-        }),
-        Subject::Group(_) => Err(GatewayEnforcementError::UnsupportedSourceSelector {
-            rule_id: rule.id,
-            selector: "group",
-        }),
-        Subject::Device(_) => Err(GatewayEnforcementError::UnsupportedSourceSelector {
-            rule_id: rule.id,
-            selector: "device",
-        }),
-        Subject::DeviceGroup(_) => Err(GatewayEnforcementError::UnsupportedSourceSelector {
-            rule_id: rule.id,
-            selector: "device_group",
-        }),
-        Subject::Location(_) => Err(GatewayEnforcementError::UnsupportedSourceSelector {
-            rule_id: rule.id,
-            selector: "location",
-        }),
+        Subject::Cidr(value) => { let network = IpNetwork::from_str(value).map_err(|_| GatewayEnforcementError::InvalidAddress(rule.id))?; Ok((vec![IpAddress::IpSubnet(value.clone())], network_version(network))) }
+        Subject::User(username) => resolved_source(rule.id, location_id, format!("user:{username}"), resolve_user_ips(pool, location_id, username).await?),
+        Subject::Group(group_name) => resolved_source(rule.id, location_id, format!("group:{group_name}"), resolve_group_ips(pool, location_id, group_name).await?),
+        Subject::Device(device_name) => resolved_source(rule.id, location_id, format!("device:{device_name}"), resolve_device_ips(pool, location_id, device_name).await?),
+        Subject::DeviceGroup(_) => Err(GatewayEnforcementError::UnsupportedSourceSelector { rule_id: rule.id, selector: "device_group" }),
+        Subject::Location(_) => Err(GatewayEnforcementError::UnsupportedSourceSelector { rule_id: rule.id, selector: "location" }),
     }
 }
 
-fn translate_destination(
-    rule: &Rule,
-) -> Result<(Vec<IpAddress>, IpVersion), GatewayEnforcementError> {
+async fn resolve_user_ips(pool: &PgPool, location_id: i64, username: &str) -> Result<Vec<IpAddr>, sqlx::Error> {
+    sqlx::query_scalar::<_, IpAddr>("SELECT DISTINCT unnest(wnd.wireguard_ips)::inet FROM wireguard_network_device wnd JOIN device d ON d.id = wnd.device_id JOIN \"user\" u ON u.id = d.user_id WHERE wnd.wireguard_network_id = $1 AND u.username = $2 AND u.is_active = TRUE AND d.configured = TRUE ORDER BY 1")
+        .bind(location_id).bind(username).fetch_all(pool).await
+}
+
+async fn resolve_group_ips(pool: &PgPool, location_id: i64, group_name: &str) -> Result<Vec<IpAddr>, sqlx::Error> {
+    sqlx::query_scalar::<_, IpAddr>("SELECT DISTINCT unnest(wnd.wireguard_ips)::inet FROM wireguard_network_device wnd JOIN device d ON d.id = wnd.device_id JOIN \"user\" u ON u.id = d.user_id JOIN group_user gu ON gu.user_id = u.id JOIN \"group\" g ON g.id = gu.group_id WHERE wnd.wireguard_network_id = $1 AND g.name = $2 AND u.is_active = TRUE AND d.configured = TRUE ORDER BY 1")
+        .bind(location_id).bind(group_name).fetch_all(pool).await
+}
+
+async fn resolve_device_ips(pool: &PgPool, location_id: i64, device_name: &str) -> Result<Vec<IpAddr>, sqlx::Error> {
+    sqlx::query_scalar::<_, IpAddr>("SELECT DISTINCT unnest(wnd.wireguard_ips)::inet FROM wireguard_network_device wnd JOIN device d ON d.id = wnd.device_id WHERE wnd.wireguard_network_id = $1 AND d.name = $2 AND d.configured = TRUE ORDER BY 1")
+        .bind(location_id).bind(device_name).fetch_all(pool).await
+}
+
+fn resolved_source(rule_id: i64, location_id: i64, selector: String, mut ips: Vec<IpAddr>) -> Result<(Vec<IpAddress>, IpVersion), GatewayEnforcementError> {
+    ips.sort(); ips.dedup();
+    if ips.is_empty() { return Err(GatewayEnforcementError::EmptySourceResolution { rule_id, selector, location_id }); }
+    let mut version = IpVersion::Unspecified;
+    let mut addrs = Vec::with_capacity(ips.len());
+    for ip in ips { version = merge_ip_versions(rule_id, version, ip_version(ip))?; addrs.push(IpAddress::Ip(ip.to_string())); }
+    Ok((addrs, version))
+}
+
+fn translate_destination(rule: &Rule) -> Result<(Vec<IpAddress>, IpVersion), GatewayEnforcementError> {
     match &rule.destination {
         Destination::Any => Ok((Vec::new(), IpVersion::Unspecified)),
-        Destination::Cidr(value) => {
-            let network = IpNetwork::from_str(value)
-                .map_err(|_| GatewayEnforcementError::InvalidAddress(rule.id))?;
-            Ok((
-                vec![IpAddress::IpSubnet(value.clone())],
-                network_version(network),
-            ))
-        }
-        Destination::Ip(value) => {
-            let ip = IpAddr::from_str(value)
-                .map_err(|_| GatewayEnforcementError::InvalidAddress(rule.id))?;
-            Ok((vec![IpAddress::Ip(value.clone())], ip_version(ip)))
-        }
-        Destination::IpRange(value) => {
-            let (start, end) = value
-                .split_once('-')
-                .ok_or(GatewayEnforcementError::InvalidAddress(rule.id))?;
-            let start = IpAddr::from_str(start.trim())
-                .map_err(|_| GatewayEnforcementError::InvalidAddress(rule.id))?;
-            let end = IpAddr::from_str(end.trim())
-                .map_err(|_| GatewayEnforcementError::InvalidAddress(rule.id))?;
-            let version = merge_ip_versions(rule.id, ip_version(start), ip_version(end))?;
-            Ok((
-                vec![IpAddress::IpRange(IpRange {
-                    start: start.to_string(),
-                    end: end.to_string(),
-                })],
-                version,
-            ))
-        }
-        Destination::Alias(_) => Err(GatewayEnforcementError::UnsupportedDestinationSelector {
-            rule_id: rule.id,
-            selector: "alias",
-        }),
-        Destination::Service(_) => Err(GatewayEnforcementError::UnsupportedDestinationSelector {
-            rule_id: rule.id,
-            selector: "service",
-        }),
+        Destination::Cidr(value) => { let network = IpNetwork::from_str(value).map_err(|_| GatewayEnforcementError::InvalidAddress(rule.id))?; Ok((vec![IpAddress::IpSubnet(value.clone())], network_version(network))) }
+        Destination::Ip(value) => { let ip = IpAddr::from_str(value).map_err(|_| GatewayEnforcementError::InvalidAddress(rule.id))?; Ok((vec![IpAddress::Ip(value.clone())], ip_version(ip))) }
+        Destination::IpRange(value) => { let (start, end) = value.split_once('-').ok_or(GatewayEnforcementError::InvalidAddress(rule.id))?; let start = IpAddr::from_str(start.trim()).map_err(|_| GatewayEnforcementError::InvalidAddress(rule.id))?; let end = IpAddr::from_str(end.trim()).map_err(|_| GatewayEnforcementError::InvalidAddress(rule.id))?; let version = merge_ip_versions(rule.id, ip_version(start), ip_version(end))?; Ok((vec![IpAddress::IpRange(IpRange { start: start.to_string(), end: end.to_string() })], version)) }
+        Destination::Alias(_) => Err(GatewayEnforcementError::UnsupportedDestinationSelector { rule_id: rule.id, selector: "alias" }),
+        Destination::Service(_) => Err(GatewayEnforcementError::UnsupportedDestinationSelector { rule_id: rule.id, selector: "service" }),
     }
 }
 
-fn network_version(network: IpNetwork) -> IpVersion {
-    if network.is_ipv4() {
-        IpVersion::Ipv4
-    } else {
-        IpVersion::Ipv6
-    }
-}
-
-fn ip_version(ip: IpAddr) -> IpVersion {
-    if ip.is_ipv4() {
-        IpVersion::Ipv4
-    } else {
-        IpVersion::Ipv6
-    }
-}
-
-fn merge_ip_versions(
-    rule_id: i64,
-    left: IpVersion,
-    right: IpVersion,
-) -> Result<IpVersion, GatewayEnforcementError> {
-    match (left, right) {
-        (IpVersion::Unspecified, other) | (other, IpVersion::Unspecified) => Ok(other),
-        (IpVersion::Ipv4, IpVersion::Ipv4) => Ok(IpVersion::Ipv4),
-        (IpVersion::Ipv6, IpVersion::Ipv6) => Ok(IpVersion::Ipv6),
-        _ => Err(GatewayEnforcementError::AddressFamilyMismatch(rule_id)),
-    }
+fn network_version(network: IpNetwork) -> IpVersion { if network.is_ipv4() { IpVersion::Ipv4 } else { IpVersion::Ipv6 } }
+fn ip_version(ip: IpAddr) -> IpVersion { if ip.is_ipv4() { IpVersion::Ipv4 } else { IpVersion::Ipv6 } }
+fn merge_ip_versions(rule_id: i64, left: IpVersion, right: IpVersion) -> Result<IpVersion, GatewayEnforcementError> {
+    match (left, right) { (IpVersion::Unspecified, other) | (other, IpVersion::Unspecified) => Ok(other), (IpVersion::Ipv4, IpVersion::Ipv4) => Ok(IpVersion::Ipv4), (IpVersion::Ipv6, IpVersion::Ipv6) => Ok(IpVersion::Ipv6), _ => Err(GatewayEnforcementError::AddressFamilyMismatch(rule_id)) }
 }
