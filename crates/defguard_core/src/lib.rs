@@ -47,6 +47,7 @@ use events::{ApiEvent, DirectorySyncEvent, LdapSyncEventType};
 use handlers::{
     activity_log::get_activity_log_events,
     auth::disable_user_mfa,
+    branding::{get_branding, reset_branding, update_branding},
     component_setup::{setup_proxy_tls_stream, stream_proxy_acme},
     group::{bulk_assign_to_groups, list_groups_info},
     network_devices::{
@@ -319,7 +320,7 @@ pub fn build_webapp(
             .route("/auth/webauthn/start", post(webauthn_start))
             .route("/auth/webauthn", post(webauthn_end))
             .route("/auth/totp/init", post(totp_secret))
-            .route("/auth/totp", post(totp_enable))
+            .route("/auth/totp", post(mfa_enable))
             .route("/auth/totp/verify", post(totp_code))
             .route("/auth/email/init", post(email_mfa_init))
             .route(
@@ -417,6 +418,11 @@ pub fn build_webapp(
             .route("/settings/{id}", put(set_default_branding))
             // settings for frontend
             .route("/settings_essentials", get(get_settings_essentials))
+            // white-label branding
+            .route(
+                "/branding",
+                get(get_branding).put(update_branding).delete(reset_branding),
+            )
             // enterprise settings
             .route(
                 "/settings_enterprise",
@@ -1709,7 +1715,7 @@ mod cli_command_tests {
                 .is_some()
         );
 
-        // creating a group with an existing name fails
+        // creating the same username again fails
         assert!(create_new_group(&pool, &args).await.is_err());
     }
 
