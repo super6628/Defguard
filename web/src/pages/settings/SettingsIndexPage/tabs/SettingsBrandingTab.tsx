@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import {
   type BrandingConfig,
+  applyBranding,
   branding,
   clearLocalBrandingOverride,
   hydrateBrandingFromServer,
   resetBranding,
-  saveBranding,
   toServerBranding,
 } from '../../../../shared/branding/branding';
 
@@ -53,13 +53,15 @@ export const SettingsBrandingTab = () => {
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify(toServerBranding(form)),
       });
-      if (!response.ok) throw new Error(`Branding save failed with ${response.status}`);
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || `Branding save failed with ${response.status}`);
+      }
       clearLocalBrandingOverride();
-      saveBranding(form);
-      clearLocalBrandingOverride();
+      applyBranding(form);
       setStatus('Branding saved to Core. The complete configuration is now shared across browsers.');
-    } catch {
-      setStatus('Core save failed. No server branding changes were applied.');
+    } catch (error) {
+      setStatus(error instanceof Error ? `Core save failed: ${error.message}` : 'Core save failed.');
     } finally {
       setSaving(false);
     }
@@ -74,16 +76,17 @@ export const SettingsBrandingTab = () => {
         credentials: 'include',
         headers: { Accept: 'application/json' },
       });
-      if (!response.ok) throw new Error(`Branding reset failed with ${response.status}`);
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || `Branding reset failed with ${response.status}`);
+      }
       clearLocalBrandingOverride();
-      const next = resetBranding();
-      clearLocalBrandingOverride();
+      resetBranding();
       await hydrateBrandingFromServer();
       setForm({ ...branding });
       setStatus('Branding reset to the Core defaults.');
-      return next;
-    } catch {
-      setStatus('Core reset failed. Branding was not changed.');
+    } catch (error) {
+      setStatus(error instanceof Error ? `Core reset failed: ${error.message}` : 'Core reset failed.');
     } finally {
       setSaving(false);
     }
