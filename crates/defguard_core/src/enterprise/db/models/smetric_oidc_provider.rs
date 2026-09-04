@@ -67,12 +67,29 @@ impl SMetricOidcProvider {
         .await
     }
 
+    /// Select the implicit provider used by login when the caller did not choose one.
+    ///
+    /// An explicit enabled default wins. If no default is configured, a single enabled
+    /// provider may be selected automatically. Multiple enabled providers with no default
+    /// deliberately return `None` so login never silently chooses an organization.
     pub async fn default_enabled(pool: &PgPool) -> sqlx::Result<Option<Self>> {
         sqlx::query_as::<_, Self>(
-            "SELECT id, name, tenant_id, issuer, client_id, client_secret, display_name, enabled, \
-             is_default, allowed_domains, auto_create, username_handling, disable_password_management, \
-             created_at, updated_at FROM smetric_oidc_provider \
-             WHERE enabled = TRUE ORDER BY is_default DESC, id ASC LIMIT 1",
+            "WITH enabled AS ( \
+                 SELECT id, name, tenant_id, issuer, client_id, client_secret, display_name, enabled, \
+                        is_default, allowed_domains, auto_create, username_handling, \
+                        disable_password_management, created_at, updated_at \
+                 FROM smetric_oidc_provider WHERE enabled = TRUE \
+             ), selected AS ( \
+                 SELECT * FROM enabled WHERE is_default = TRUE \
+                 UNION ALL \
+                 SELECT * FROM enabled \
+                 WHERE (SELECT COUNT(*) FROM enabled) = 1 \
+                   AND NOT EXISTS (SELECT 1 FROM enabled WHERE is_default = TRUE) \
+             ) \
+             SELECT id, name, tenant_id, issuer, client_id, client_secret, display_name, enabled, \
+                    is_default, allowed_domains, auto_create, username_handling, \
+                    disable_password_management, created_at, updated_at \
+             FROM selected ORDER BY is_default DESC, id ASC LIMIT 1",
         )
         .fetch_optional(pool)
         .await
