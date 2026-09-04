@@ -5,6 +5,7 @@ pub mod device_posture;
 pub mod enterprise_settings;
 pub mod openid_login;
 pub mod openid_providers;
+pub mod smetric_microsoft_oidc;
 
 use std::marker::PhantomData;
 
