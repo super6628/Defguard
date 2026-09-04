@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::{
     appstate::AppState,
-    auth::{AdminRole, SessionInfo},
+    auth::AdminRole,
     grpc::smetric_config_sync::notify_config_changed,
 };
 
@@ -47,7 +47,6 @@ impl IntoResponse for ApiError {
 
 pub async fn list(
     _admin: AdminRole,
-    _session: SessionInfo,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<PolicySummary>>, ApiError> {
     Ok(Json(list_policies(&state.pool).await?))
@@ -55,7 +54,6 @@ pub async fn list(
 
 pub async fn create(
     _admin: AdminRole,
-    _session: SessionInfo,
     State(state): State<AppState>,
     Json(input): Json<CreatePolicy>,
 ) -> Result<(StatusCode, Json<PolicySummary>), ApiError> {
@@ -65,7 +63,6 @@ pub async fn create(
 
 pub async fn get(
     _admin: AdminRole,
-    _session: SessionInfo,
     State(state): State<AppState>,
     Path(policy_id): Path<i64>,
 ) -> Result<Json<Policy>, ApiError> {
@@ -74,7 +71,6 @@ pub async fn get(
 
 pub async fn remove(
     _admin: AdminRole,
-    _session: SessionInfo,
     State(state): State<AppState>,
     Path(policy_id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
@@ -84,7 +80,6 @@ pub async fn remove(
 
 pub async fn create_rule(
     _admin: AdminRole,
-    _session: SessionInfo,
     State(state): State<AppState>,
     Path(policy_id): Path<i64>,
     Json(input): Json<CreateRule>,
@@ -95,7 +90,6 @@ pub async fn create_rule(
 
 pub async fn validate(
     _admin: AdminRole,
-    _session: SessionInfo,
     State(state): State<AppState>,
     Path(policy_id): Path<i64>,
 ) -> Result<Json<Policy>, ApiError> {
@@ -104,7 +98,6 @@ pub async fn validate(
 
 pub async fn publish(
     _admin: AdminRole,
-    _session: SessionInfo,
     State(state): State<AppState>,
     Path(policy_id): Path<i64>,
 ) -> Result<Json<PublishedPolicy>, ApiError> {
