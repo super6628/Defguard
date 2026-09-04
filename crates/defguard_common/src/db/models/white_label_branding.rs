@@ -32,7 +32,7 @@ impl Default for WhiteLabelBranding {
             copyright_name: "S-Metric".into(),
             support_email: String::new(),
             support_url: String::new(),
-            documentation_url: "https://docs.defguard.net/".into(),
+            documentation_url: String::new(),
             logo_url: String::new(),
             nav_logo_url: String::new(),
             logo_dark_url: String::new(),
