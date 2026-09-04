@@ -9,6 +9,7 @@ window.__WHITE_LABEL__ = {
   supportUrl: '',
   documentationUrl: 'https://docs.defguard.net/',
   logoUrl: '',
+  navLogoUrl: '',
   logoDarkUrl: '',
   faviconUrl: '',
   primaryColor: '',
