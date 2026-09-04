@@ -7,6 +7,7 @@ export type BrandingConfig = {
   supportUrl: string;
   documentationUrl: string;
   logoUrl: string;
+  navLogoUrl: string;
   logoDarkUrl: string;
   faviconUrl: string;
   primaryColor: string;
@@ -15,6 +16,12 @@ export type BrandingConfig = {
   setupTitle: string;
   setupSubtitle: string;
   setupButtonText: string;
+};
+
+type ServerBranding = {
+  instance_name?: string;
+  main_logo_url?: string;
+  nav_logo_url?: string;
 };
 
 const STORAGE_KEY = 'white-label-branding';
@@ -28,6 +35,7 @@ export const brandingDefaults: BrandingConfig = {
   supportUrl: '',
   documentationUrl: 'https://docs.defguard.net/',
   logoUrl: '',
+  navLogoUrl: '',
   logoDarkUrl: '',
   faviconUrl: '',
   primaryColor: '',
@@ -55,9 +63,12 @@ const readSavedBranding = (): Partial<BrandingConfig> => {
   }
 };
 
+const deploymentBranding = () =>
+  typeof window !== 'undefined' ? (window.__WHITE_LABEL__ ?? {}) : {};
+
 export const branding: BrandingConfig = {
   ...brandingDefaults,
-  ...(typeof window !== 'undefined' ? window.__WHITE_LABEL__ : {}),
+  ...deploymentBranding(),
   ...readSavedBranding(),
 };
 
@@ -80,6 +91,31 @@ export const applyBrandingToDocument = () => {
   }
 };
 
+export const hydrateBrandingFromServer = async () => {
+  if (typeof window === 'undefined') return branding;
+  try {
+    const response = await fetch('/api/v1/settings_essentials', {
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) return branding;
+    const server = (await response.json()) as ServerBranding;
+    const local = readSavedBranding();
+    Object.assign(branding, {
+      ...brandingDefaults,
+      ...deploymentBranding(),
+      ...(server.instance_name ? { productName: server.instance_name } : {}),
+      ...(server.main_logo_url ? { logoUrl: server.main_logo_url } : {}),
+      ...(server.nav_logo_url ? { navLogoUrl: server.nav_logo_url } : {}),
+      ...local,
+    });
+    applyBrandingToDocument();
+  } catch {
+    // Keep deployment defaults when Core is unavailable during startup.
+  }
+  return branding;
+};
+
 export const saveBranding = (next: BrandingConfig) => {
   Object.assign(branding, next);
   if (typeof window !== 'undefined') window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
@@ -90,7 +126,7 @@ export const saveBranding = (next: BrandingConfig) => {
 export const resetBranding = () => {
   const next: BrandingConfig = {
     ...brandingDefaults,
-    ...(typeof window !== 'undefined' ? window.__WHITE_LABEL__ : {}),
+    ...deploymentBranding(),
   };
   Object.assign(branding, next);
   if (typeof window !== 'undefined') window.localStorage.removeItem(STORAGE_KEY);
