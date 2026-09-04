@@ -4,6 +4,9 @@ import 'react-loading-skeleton/dist/skeleton.css';
 // keep this as last style import
 import './shared/defguard-ui/scss/index.scss';
 import { App } from './app/App.tsx';
+import { applyBrandingToDocument } from './shared/branding/branding.ts';
+
+applyBrandingToDocument();
 
 // biome-ignore lint/style/noNonNullAssertion: always there
 createRoot(document.getElementById('root')!).render(
