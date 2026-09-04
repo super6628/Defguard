@@ -1,3 +1,5 @@
+pub mod service;
+
 use std::{fmt, net::IpAddr, str::FromStr};
 
 use ipnetwork::IpNetwork;
@@ -197,7 +199,6 @@ pub fn compile(mut policy: Policy) -> Result<CompiledPolicy, ValidationError> {
     policy.rules.retain(|rule| rule.enabled);
     policy.rules.sort_by_key(|rule| (rule.priority, rule.id));
 
-    // serde_json is used only to create a stable representation of our own strongly typed model.
     let canonical = serde_json::to_string(&(
         policy.id,
         policy.revision,
