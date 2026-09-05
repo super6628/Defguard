@@ -1,6 +1,16 @@
 use serde::Serialize;
 use sqlx::PgPool;
 
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LocationDeploymentStatus {
+    Pending,
+    Applied,
+    Failed,
+    GatewayOffline,
+    NotDeployed,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct LocationDeploymentState {
     pub location_id: i64,
@@ -9,6 +19,19 @@ pub struct LocationDeploymentState {
     pub applied_generation: Option<i64>,
     pub applied_checksum: Option<String>,
     pub last_error: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct PolicyLocationDeploymentStatus {
+    pub policy_id: i64,
+    pub location_id: i64,
+    pub desired_generation: Option<i64>,
+    pub desired_checksum: Option<String>,
+    pub applied_generation: Option<i64>,
+    pub applied_checksum: Option<String>,
+    pub last_error: Option<String>,
+    pub gateway_online: bool,
+    pub status: LocationDeploymentStatus,
 }
 
 pub async fn get(
@@ -30,6 +53,65 @@ pub async fn get(
         applied_checksum: row.4,
         last_error: row.5,
     }))
+}
+
+pub async fn list_for_policy(
+    pool: &PgPool,
+    policy_id: i64,
+) -> Result<Vec<PolicyLocationDeploymentStatus>, sqlx::Error> {
+    let rows = sqlx::query_as::<_, (
+        i64,
+        i64,
+        Option<i64>,
+        Option<String>,
+        Option<i64>,
+        Option<String>,
+        Option<String>,
+        bool,
+    )>(
+        "SELECT a.policy_id, a.location_id, ds.desired_generation, ds.desired_checksum, \
+                ds.applied_generation, ds.applied_checksum, ds.last_error, \
+                EXISTS ( \
+                    SELECT 1 FROM gateway g \
+                    WHERE g.location_id = a.location_id \
+                      AND g.enabled = TRUE \
+                      AND g.connected_at IS NOT NULL \
+                      AND (g.disconnected_at IS NULL OR g.disconnected_at <= g.connected_at) \
+                ) AS gateway_online \
+         FROM smetric_acl_policy_assignment a \
+         LEFT JOIN smetric_acl_location_deployment_state ds ON ds.location_id = a.location_id \
+         WHERE a.policy_id=$1 AND a.enabled=TRUE \
+         ORDER BY a.location_id",
+    )
+    .bind(policy_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let status = match row.2 {
+                None => LocationDeploymentStatus::NotDeployed,
+                Some(desired_generation) if row.4 == Some(desired_generation) => {
+                    LocationDeploymentStatus::Applied
+                }
+                Some(_) if row.6.is_some() => LocationDeploymentStatus::Failed,
+                Some(_) if !row.7 => LocationDeploymentStatus::GatewayOffline,
+                Some(_) => LocationDeploymentStatus::Pending,
+            };
+            PolicyLocationDeploymentStatus {
+                policy_id: row.0,
+                location_id: row.1,
+                desired_generation: row.2,
+                desired_checksum: row.3,
+                applied_generation: row.4,
+                applied_checksum: row.5,
+                last_error: row.6,
+                gateway_online: row.7,
+                status,
+            }
+        })
+        .collect())
 }
 
 pub async fn record_desired(
