@@ -50,11 +50,18 @@ impl ConfigSyncHub {
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_millis().min(i64::MAX as u128) as i64)
             .unwrap_or_default();
+        let reason = reason.into();
         let _ = self.tx.send(ConfigSyncEvent {
             version,
-            reason: reason.into(),
+            reason: reason.clone(),
             changed_at_unix_ms,
         });
+        tracing::info!(
+            security_event = "smetric_config_version_changed",
+            version,
+            reason = %reason,
+            "S-Metric desired client configuration changed"
+        );
         version
     }
 
@@ -145,18 +152,35 @@ impl ConfigSyncService for ConfigSyncServer {
     ) -> Result<Response<AckResponse>, Status> {
         let ack = request.into_inner();
         let desired = self.hub.desired_version();
-        if ack.success {
-            debug!(version = ack.version, desired, "Client acknowledged S-Metric config version");
+        let accepted = ack.version == desired;
+
+        if !accepted {
+            tracing::warn!(
+                security_event = "smetric_config_ack_stale",
+                version = ack.version,
+                desired,
+                success = ack.success,
+                "Rejected stale S-Metric client configuration acknowledgement"
+            );
+        } else if ack.success {
+            tracing::info!(
+                security_event = "smetric_config_applied",
+                version = ack.version,
+                desired,
+                "Client acknowledged current S-Metric configuration version"
+            );
         } else {
-            warn!(
+            tracing::error!(
+                security_event = "smetric_config_apply_failed",
                 version = ack.version,
                 desired,
                 error = %ack.error,
-                "Client failed to apply S-Metric config version"
+                "Client failed to apply current S-Metric configuration version"
             );
         }
+
         Ok(Response::new(AckResponse {
-            accepted: ack.version <= desired,
+            accepted,
             desired_version: desired,
         }))
     }
