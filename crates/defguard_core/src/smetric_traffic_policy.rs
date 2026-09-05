@@ -134,6 +134,23 @@ mod tests {
     }
 
     #[test]
+    fn complete_specificity_order_is_stable() {
+        let global = policy(1, 1);
+        let location = policy(2, 1);
+        let group = policy(3, 1);
+        let user = policy(4, 1);
+        let device = policy(5, 1);
+        let selected = resolve_effective_policy([
+            (&global, &TrafficTarget::Global),
+            (&location, &TrafficTarget::Location(10)),
+            (&group, &TrafficTarget::Group(20)),
+            (&user, &TrafficTarget::User(30)),
+            (&device, &TrafficTarget::Device(40)),
+        ]);
+        assert_eq!(selected.map(|policy| policy.id), Some(5));
+    }
+
+    #[test]
     fn lower_priority_number_wins_with_same_specificity() {
         let first = policy(1, 50);
         let second = policy(2, 10);
@@ -142,5 +159,36 @@ mod tests {
             (&second, &TrafficTarget::Group(2)),
         ]);
         assert_eq!(selected.map(|policy| policy.id), Some(2));
+    }
+
+    #[test]
+    fn lower_policy_id_breaks_equal_priority_ties() {
+        let first = policy(10, 25);
+        let second = policy(20, 25);
+        let selected = resolve_effective_policy([
+            (&second, &TrafficTarget::Location(1)),
+            (&first, &TrafficTarget::Location(2)),
+        ]);
+        assert_eq!(selected.map(|policy| policy.id), Some(10));
+    }
+
+    #[test]
+    fn disabled_policy_is_never_selected() {
+        let mut device = policy(1, 1);
+        device.enabled = false;
+        let global = policy(2, 100);
+        let selected = resolve_effective_policy([
+            (&device, &TrafficTarget::Device(20)),
+            (&global, &TrafficTarget::Global),
+        ]);
+        assert_eq!(selected.map(|policy| policy.id), Some(2));
+    }
+
+    #[test]
+    fn no_enabled_candidates_returns_none() {
+        let mut policy = policy(1, 1);
+        policy.enabled = false;
+        let selected = resolve_effective_policy([(&policy, &TrafficTarget::Global)]);
+        assert!(selected.is_none());
     }
 }
