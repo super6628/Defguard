@@ -20,7 +20,6 @@ use crate::{
     handlers::{ApiErrorResponse, ApiResponse, ApiResult},
 };
 
-/// An ACL alias, as accepted when creating or updating one.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, ToSchema)]
 pub struct EditAclAlias {
     pub name: String,
@@ -45,14 +44,12 @@ impl EditAclAlias {
         Ok(())
     }
 
-    /// Creates relation objects for a given [`AclAlias`] based on [`AclAliasInfo`] object.
     pub(crate) async fn create_related_objects(
         &self,
         transaction: &mut PgConnection,
         alias_id: Id,
     ) -> Result<(), AclError> {
         debug!("Creating related objects for ACL alias {self:?}");
-        // save related destination ranges
         let destination = parse_destination_addresses(&self.addresses)?;
         for range in destination.ranges {
             let obj = AclAliasDestinationRange {
@@ -63,14 +60,11 @@ impl EditAclAlias {
             };
             obj.save(&mut *transaction).await?;
         }
-
         info!("Created related objects for ACL alias {self:?}");
         Ok(())
     }
 }
 
-/// An ACL alias component.
-/// All relations represented as arrays of IDs.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, ToSchema)]
 pub struct ApiAclAlias {
     #[serde(default)]
@@ -91,28 +85,22 @@ pub(crate) struct ApplyAclAliasesData {
 }
 
 impl ApiAclAlias {
-    /// Creates new [`AclAlias`] with all related objects based on [`AclAliasInfo`].
     pub(crate) async fn create_from_api(
         pool: &PgPool,
         api_alias: &EditAclAlias,
         actor: &str,
     ) -> Result<Self, AclError> {
         let mut transaction = pool.begin().await?;
-
         let mut alias = AclAlias::try_from(api_alias)?;
         alias.stamp_modified(actor);
         let alias = alias.save(&mut *transaction).await?;
-
         api_alias
             .create_related_objects(&mut transaction, alias.id)
             .await?;
-
         transaction.commit().await?;
-        let result = Self::from(alias.to_info(pool).await?);
-        Ok(result)
+        Ok(Self::from(alias.to_info(pool).await?))
     }
 
-    /// Updates [`AclAlias`] with all it's related objects based on [`AclAliasInfo`] object.
     pub(crate) async fn update_from_api(
         pool: &PgPool,
         id: Id,
@@ -120,8 +108,6 @@ impl ApiAclAlias {
         actor: &str,
     ) -> Result<Self, AclError> {
         let mut transaction = pool.begin().await?;
-
-        // find existing alias
         let existing_alias =
             AclAlias::find_by_id_and_kind(&mut *transaction, id, AliasKind::Component)
                 .await?
@@ -130,51 +116,34 @@ impl ApiAclAlias {
                     AclError::AliasNotFoundError(id)
                 })?;
 
-        // Convert alias from API to model.
         let mut alias = AclAlias::try_from(api_alias)?;
         alias.stamp_modified(actor);
-
-        // perform appropriate updates depending on existing alias' state
         let alias = match existing_alias.state {
             AliasState::Applied => {
-                debug!("Alias {id} state is `Applied` - creating new `Modified` alias object",);
                 let result = query!("DELETE FROM aclalias WHERE parent_id = $1", id)
                     .execute(&mut *transaction)
                     .await?;
-                debug!(
-                    "Removed {} old modifications of alias {id}",
-                    result.rows_affected(),
-                );
-
+                debug!("Removed {} old modifications of alias {id}", result.rows_affected());
                 alias.state = AliasState::Modified;
                 alias.parent_id = Some(id);
                 let alias = alias.save(&mut *transaction).await?;
-
                 api_alias
                     .create_related_objects(&mut transaction, alias.id)
                     .await?;
-
                 alias
             }
             AliasState::Modified => {
-                debug!(
-                    "Alias {id} is a modification to alias {:?} - updating the modification",
-                    existing_alias.parent_id,
-                );
                 let mut alias = alias.with_id(id);
                 alias.parent_id = existing_alias.parent_id;
                 alias.state = existing_alias.state;
                 alias.save(&mut *transaction).await?;
-
                 acl_delete_related_objects(&mut transaction, alias.id).await?;
                 api_alias
                     .create_related_objects(&mut transaction, alias.id)
                     .await?;
-
                 alias
             }
         };
-
         transaction.commit().await?;
         Ok(alias.to_info(pool).await?.into())
     }
@@ -196,22 +165,7 @@ impl From<AclAliasInfo> for ApiAclAlias {
     }
 }
 
-/// List ACL aliases
-#[utoipa::path(
-    get,
-    path = "/api/v1/acl/alias",
-    tag = "ACL",
-    responses(
-        (status = 200, description = "All ACL aliases.", body = [ApiAclAlias]),
-        (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
-        (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
-        (status = 500, description = "Unable to list ACL aliases.", body = ApiErrorResponse, example = json!({"msg": "Internal server error"})),
-    ),
-    security(
-        ("cookie" = []),
-        ("api_token" = [])
-    )
-)]
+#[utoipa::path(get, path = "/api/v1/acl/alias", tag = "ACL", responses((status = 200, body = [ApiAclAlias])))]
 pub(crate) async fn list_acl_aliases(
     _admin: AdminRole,
     State(appstate): State<AppState>,
@@ -227,26 +181,11 @@ pub(crate) async fn list_acl_aliases(
         })?;
         api_aliases.push(info.into());
     }
-    info!("User {} listed ACL aliases", session.user.username);
     Ok(ApiResponse::json(api_aliases, StatusCode::OK))
 }
 
-#[utoipa::path(
-    get,
-    path = "/api/v1/acl/alias/count",
-    tag = "ACL",
-    responses(
-        (status = 200, description = "Number of ACL aliases in each state.", body = AclStateCount),
-        (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
-        (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
-        (status = 500, description = "Unable to count ACL aliases.", body = ApiErrorResponse, example = json!({"msg": "Internal server error"})),
-    ),
-    security(("cookie" = []), ("api_token" = []))
-)]
-pub(crate) async fn count_acl_aliases(
-    _admin: AdminRole,
-    State(appstate): State<AppState>,
-) -> ApiResult {
+#[utoipa::path(get, path = "/api/v1/acl/alias/count", tag = "ACL", responses((status = 200, body = AclStateCount)))]
+pub(crate) async fn count_acl_aliases(_admin: AdminRole, State(appstate): State<AppState>) -> ApiResult {
     let counts = query_as::<_, AclStateCount>(
         "SELECT COUNT(*) FILTER (WHERE state = 'applied'::aclalias_state) AS applied, COUNT(*) FILTER (WHERE state = 'modified'::aclalias_state) AS pending FROM aclalias WHERE kind = $1",
     )
@@ -264,18 +203,13 @@ pub(crate) async fn get_acl_alias(
     session: SessionInfo,
     Path(id): Path<Id>,
 ) -> ApiResult {
-    debug!("User {} retrieving ACL alias {id}", session.user.username);
     let (alias, status) = match AclAlias::find_by_id_and_kind(&appstate.pool, id, AliasKind::Component).await? {
         Some(alias) => (
-            json!(ApiAclAlias::from(alias.to_info(&appstate.pool).await.map_err(|err| {
-                error!("Error retrieving ACL alias {alias:?}: {err}");
-                err
-            })?)),
+            json!(ApiAclAlias::from(alias.to_info(&appstate.pool).await?)),
             StatusCode::OK,
         ),
         None => (Value::Null, StatusCode::NOT_FOUND),
     };
-    info!("User {} retrieved ACL alias {id}", session.user.username);
     Ok(ApiResponse::new(alias, status))
 }
 
@@ -287,15 +221,8 @@ pub(crate) async fn create_acl_alias(
     session: SessionInfo,
     Json(data): Json<EditAclAlias>,
 ) -> ApiResult {
-    debug!("User {} creating ACL alias {data:?}", session.user.username);
     data.validate()?;
-    let alias = ApiAclAlias::create_from_api(&appstate.pool, &data, &session.user.username)
-        .await
-        .map_err(|err| {
-            error!("Error creating ACL alias {data:?}: {err}");
-            err
-        })?;
-    info!("User {} created ACL alias {}", session.user.username, alias.id);
+    let alias = ApiAclAlias::create_from_api(&appstate.pool, &data, &session.user.username).await?;
     Ok(ApiResponse::json(alias, StatusCode::CREATED))
 }
 
@@ -308,15 +235,8 @@ pub(crate) async fn update_acl_alias(
     Path(id): Path<Id>,
     Json(data): Json<EditAclAlias>,
 ) -> ApiResult {
-    debug!("User {} updating ACL alias {data:?}", session.user.username);
     data.validate()?;
-    let alias = ApiAclAlias::update_from_api(&appstate.pool, id, &data, &session.user.username)
-        .await
-        .map_err(|err| {
-            error!("Error updating ACL alias {data:?}: {err}");
-            err
-        })?;
-    info!("User {} updated ACL alias", session.user.username);
+    let alias = ApiAclAlias::update_from_api(&appstate.pool, id, &data, &session.user.username).await?;
     Ok(ApiResponse::json(alias, StatusCode::OK))
 }
 
@@ -328,13 +248,7 @@ pub(crate) async fn delete_acl_alias(
     session: SessionInfo,
     Path(id): Path<Id>,
 ) -> ApiResult {
-    debug!("User {} deleting ACL alias {id}", session.user.username);
-    AclAlias::delete_by_kind(&appstate.pool, id, AliasKind::Component)
-        .await
-        .map_err(|err| {
-            error!("Error deleting ACL alias {id}: {err}");
-            err
-        })?;
+    AclAlias::delete_by_kind(&appstate.pool, id, AliasKind::Component).await?;
     info!("User {} deleted ACL alias {id}", session.user.username);
     Ok(ApiResponse::default())
 }
@@ -347,7 +261,11 @@ pub(crate) async fn apply_acl_aliases(
     session: SessionInfo,
     Json(data): Json<ApplyAclAliasesData>,
 ) -> ApiResult {
-    debug!("User {} applying ACL aliases: {:?}", session.user.username, data.aliases);
+    if data.aliases.is_empty() {
+        return Err(WebError::BadRequest(
+            "Must provide at least one ACL alias to apply".to_owned(),
+        ));
+    }
     AclAlias::apply_by_kind(
         &data.aliases,
         AliasKind::Component,
@@ -355,11 +273,6 @@ pub(crate) async fn apply_acl_aliases(
         &appstate.pool,
         &appstate.gateway_tx,
     )
-    .await
-    .map_err(|err| {
-        error!("Error applying ACL aliases {data:?}: {err}");
-        err
-    })?;
-    info!("User {} applied ACL aliases: {:?}", session.user.username, data.aliases);
+    .await?;
     Ok(ApiResponse::default())
 }
