@@ -1,0 +1,99 @@
+use super::*;
+
+#[sqlx::test]
+async fn test_rule_rejects_empty_manual_location_scope(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = setup_pool(options).await;
+    let (mut client, _) = make_test_client(pool).await;
+    authenticate_admin(&mut client).await;
+
+    let mut rule = make_rule();
+    rule.all_locations = false;
+    rule.locations.clear();
+
+    let response = client.post("/api/v1/acl/rule").json(&rule).send().await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test]
+async fn test_rule_rejects_contradictory_all_source_flags(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = setup_pool(options).await;
+    let (mut client, _) = make_test_client(pool).await;
+    authenticate_admin(&mut client).await;
+
+    let mut user_rule = make_rule();
+    user_rule.allow_all_users = true;
+    user_rule.deny_all_users = true;
+    let response = client
+        .post("/api/v1/acl/rule")
+        .json(&user_rule)
+        .send()
+        .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let mut group_rule = make_rule();
+    group_rule.allow_all_groups = true;
+    group_rule.deny_all_groups = true;
+    let response = client
+        .post("/api/v1/acl/rule")
+        .json(&group_rule)
+        .send()
+        .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let mut device_rule = make_rule();
+    device_rule.allow_all_network_devices = true;
+    device_rule.deny_all_network_devices = true;
+    let response = client
+        .post("/api/v1/acl/rule")
+        .json(&device_rule)
+        .send()
+        .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test]
+async fn test_rule_rejects_explicit_allow_deny_collisions(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = setup_pool(options).await;
+    let (mut client, _) = make_test_client(pool).await;
+    authenticate_admin(&mut client).await;
+
+    let mut user_rule = make_rule();
+    user_rule.denied_users = user_rule.allowed_users.clone();
+    let response = client
+        .post("/api/v1/acl/rule")
+        .json(&user_rule)
+        .send()
+        .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let mut group_rule = make_rule();
+    group_rule.allowed_users.clear();
+    group_rule.allowed_groups = vec![1];
+    group_rule.denied_groups = vec![1];
+    let response = client
+        .post("/api/v1/acl/rule")
+        .json(&group_rule)
+        .send()
+        .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let mut device_rule = make_rule();
+    device_rule.allowed_users.clear();
+    device_rule.allowed_network_devices = vec![1];
+    device_rule.denied_network_devices = vec![1];
+    let response = client
+        .post("/api/v1/acl/rule")
+        .json(&device_rule)
+        .send()
+        .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
