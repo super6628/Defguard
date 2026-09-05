@@ -25,6 +25,7 @@ pub fn router() -> Router<AppState> {
         .route("/policies/{policy_id}/rules", post(create_rule))
         .route("/policies/{policy_id}/validate", post(validate))
         .route("/policies/{policy_id}/publish", post(publish))
+        .merge(super::device_groups::router())
 }
 
 #[derive(Debug, Serialize)]
