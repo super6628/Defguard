@@ -7,7 +7,9 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{appstate::AppState, auth::AdminRole};
+use crate::{
+    appstate::AppState, auth::AdminRole, grpc::smetric_config_sync::notify_config_changed,
+};
 
 use super::{
     EffectiveTrafficPolicy, TrafficPolicy,
@@ -82,6 +84,7 @@ pub async fn create(
     Json(input): Json<CreateTrafficPolicy>,
 ) -> Result<(StatusCode, Json<TrafficPolicy>), ApiError> {
     let policy = create_policy(&state.pool, input).await?;
+    notify_config_changed(format!("smetric_traffic_policy:{}:created", policy.id));
     Ok((StatusCode::CREATED, Json(policy)))
 }
 
@@ -99,7 +102,12 @@ pub async fn update(
     Path(policy_id): Path<i64>,
     Json(input): Json<CreateTrafficPolicy>,
 ) -> Result<Json<TrafficPolicy>, ApiError> {
-    Ok(Json(update_policy(&state.pool, policy_id, input).await?))
+    let policy = update_policy(&state.pool, policy_id, input).await?;
+    notify_config_changed(format!(
+        "smetric_traffic_policy:{policy_id}:draft_revision:{}",
+        policy.revision
+    ));
+    Ok(Json(policy))
 }
 
 pub async fn remove(
@@ -108,6 +116,7 @@ pub async fn remove(
     Path(policy_id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
     delete_policy(&state.pool, policy_id).await?;
+    notify_config_changed(format!("smetric_traffic_policy:{policy_id}:deleted"));
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -123,7 +132,12 @@ pub async fn set_policy_enabled(
     Json(input): Json<SetEnabled>,
 ) -> Result<Json<TrafficPolicy>, ApiError> {
     set_enabled(&state.pool, policy_id, input.enabled).await?;
-    Ok(Json(load_policy(&state.pool, policy_id).await?))
+    let policy = load_policy(&state.pool, policy_id).await?;
+    notify_config_changed(format!(
+        "smetric_traffic_policy:{policy_id}:enabled:{}",
+        input.enabled
+    ));
+    Ok(Json(policy))
 }
 
 pub async fn publish(
@@ -131,7 +145,12 @@ pub async fn publish(
     State(state): State<AppState>,
     Path(policy_id): Path<i64>,
 ) -> Result<Json<PublishedTrafficPolicy>, ApiError> {
-    Ok(Json(publish_policy(&state.pool, policy_id).await?))
+    let published = publish_policy(&state.pool, policy_id).await?;
+    notify_config_changed(format!(
+        "smetric_traffic_policy:{policy_id}:revision:{}",
+        published.revision
+    ));
+    Ok(Json(published))
 }
 
 pub async fn effective(
