@@ -22,8 +22,9 @@ use super::location_effective::{
     compile_location_firewall_without_policy,
 };
 use super::service::{
-    CreatePolicy, CreateRule, PolicySummary, PublishedPolicy, ServiceError, add_rule,
-    create_policy, delete_policy, list_policies, load_policy, publish_policy, validate_policy,
+    CreatePolicy, CreateRule, PolicySummary, PublishedPolicy, ServiceError, UpdateRule, add_rule,
+    create_policy, delete_policy, delete_rule, list_policies, load_policy, publish_policy,
+    update_rule, validate_policy,
 };
 use super::{Policy, Rule};
 
@@ -33,6 +34,10 @@ pub fn router() -> Router<AppState> {
         .route("/policies/{policy_id}", route_get(get).delete(remove))
         .route("/policies/{policy_id}/enabled", post(set_policy_enabled))
         .route("/policies/{policy_id}/rules", post(create_rule))
+        .route(
+            "/policies/{policy_id}/rules/{rule_id}",
+            post(update_rule_handler).delete(delete_rule_handler),
+        )
         .route("/policies/{policy_id}/validate", post(validate))
         .route("/policies/{policy_id}/publish", post(publish))
         .route(
@@ -68,7 +73,9 @@ impl From<ServiceError> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = match self.0 {
-            ServiceError::PolicyNotFound(_) => StatusCode::NOT_FOUND,
+            ServiceError::PolicyNotFound(_) | ServiceError::RuleNotFound { .. } => {
+                StatusCode::NOT_FOUND
+            }
             ServiceError::Validation(_) | ServiceError::InvalidStoredValue(_) => {
                 StatusCode::BAD_REQUEST
             }
@@ -90,7 +97,10 @@ fn gateway_error_response(error: GatewayEnforcementError) -> Response {
         | GatewayEnforcementError::Service(ServiceError::Database(_)) => {
             StatusCode::INTERNAL_SERVER_ERROR
         }
-        GatewayEnforcementError::Service(ServiceError::PolicyNotFound(_)) => StatusCode::NOT_FOUND,
+        GatewayEnforcementError::Service(ServiceError::PolicyNotFound(_))
+        | GatewayEnforcementError::Service(ServiceError::RuleNotFound { .. }) => {
+            StatusCode::NOT_FOUND
+        }
         _ => StatusCode::BAD_REQUEST,
     };
     (
@@ -194,8 +204,7 @@ pub async fn set_policy_enabled(
     }
 
     let location_ids = sqlx::query_scalar::<_, i64>(
-        "SELECT location_id FROM smetric_acl_policy_assignment \
-         WHERE policy_id=$1 AND enabled=TRUE ORDER BY location_id",
+        "SELECT location_id FROM smetric_acl_policy_assignment WHERE policy_id=$1 AND enabled=TRUE ORDER BY location_id",
     )
     .bind(policy_id)
     .fetch_all(&state.pool)
@@ -230,10 +239,7 @@ pub async fn set_policy_enabled(
     for effective in replacements {
         deploy_effective(&state, effective).await?;
     }
-    notify_config_changed(format!(
-        "smetric_acl:policy:{policy_id}:enabled:{}",
-        input.enabled
-    ));
+    notify_config_changed(format!("smetric_acl:policy:{policy_id}:enabled:{}", input.enabled));
 
     Ok(Json(
         load_policy(&state.pool, policy_id)
@@ -252,15 +258,14 @@ pub async fn remove(
         .map_err(|error| ApiError(error).into_response())?;
 
     let location_ids = sqlx::query_scalar::<_, i64>(
-        "SELECT DISTINCT location_id FROM smetric_acl_policy_assignment \
-         WHERE policy_id=$1 AND enabled=TRUE ORDER BY location_id",
+        "SELECT DISTINCT location_id FROM smetric_acl_policy_assignment WHERE policy_id=$1 AND enabled=TRUE ORDER BY location_id",
     )
     .bind(policy_id)
     .fetch_all(&state.pool)
     .await
     .map_err(|error| ApiError(ServiceError::Database(error)).into_response())?;
 
-    let mut replacements: Vec<EffectiveLocationFirewall> = Vec::with_capacity(location_ids.len());
+    let mut replacements = Vec::with_capacity(location_ids.len());
     for location_id in location_ids {
         replacements.push(
             compile_location_firewall_without_policy(&state.pool, location_id, policy_id)
@@ -302,8 +307,7 @@ pub async fn list_assignments(
         .await
         .map_err(|error| ApiError(error).into_response())?;
     let rows = sqlx::query_as::<_, (i64, i64, bool)>(
-        "SELECT policy_id, location_id, enabled FROM smetric_acl_policy_assignment \
-         WHERE policy_id=$1 ORDER BY location_id",
+        "SELECT policy_id, location_id, enabled FROM smetric_acl_policy_assignment WHERE policy_id=$1 ORDER BY location_id",
     )
     .bind(policy_id)
     .fetch_all(&state.pool)
@@ -371,9 +375,7 @@ pub async fn set_assignment(
     };
 
     sqlx::query(
-        "INSERT INTO smetric_acl_policy_assignment (policy_id, location_id, enabled) \
-         VALUES ($1,$2,$3) \
-         ON CONFLICT (policy_id, location_id) DO UPDATE SET enabled=EXCLUDED.enabled",
+        "INSERT INTO smetric_acl_policy_assignment (policy_id, location_id, enabled) VALUES ($1,$2,$3) ON CONFLICT (policy_id, location_id) DO UPDATE SET enabled=EXCLUDED.enabled",
     )
     .bind(policy_id)
     .bind(location_id)
@@ -456,6 +458,24 @@ pub async fn create_rule(
     Ok((StatusCode::CREATED, Json(rule)))
 }
 
+pub async fn update_rule_handler(
+    _admin: AdminRole,
+    State(state): State<AppState>,
+    Path((policy_id, rule_id)): Path<(i64, i64)>,
+    Json(input): Json<UpdateRule>,
+) -> Result<Json<Rule>, ApiError> {
+    Ok(Json(update_rule(&state.pool, policy_id, rule_id, input).await?))
+}
+
+pub async fn delete_rule_handler(
+    _admin: AdminRole,
+    State(state): State<AppState>,
+    Path((policy_id, rule_id)): Path<(i64, i64)>,
+) -> Result<StatusCode, ApiError> {
+    delete_rule(&state.pool, policy_id, rule_id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn validate(
     _admin: AdminRole,
     State(state): State<AppState>,
@@ -488,8 +508,7 @@ pub async fn publish(
         .map_err(|error| ApiError(error).into_response())?;
 
     let location_ids = sqlx::query_scalar::<_, i64>(
-        "SELECT location_id FROM smetric_acl_policy_assignment \
-         WHERE policy_id=$1 AND enabled=TRUE ORDER BY location_id",
+        "SELECT location_id FROM smetric_acl_policy_assignment WHERE policy_id=$1 AND enabled=TRUE ORDER BY location_id",
     )
     .bind(policy_id)
     .fetch_all(&state.pool)
