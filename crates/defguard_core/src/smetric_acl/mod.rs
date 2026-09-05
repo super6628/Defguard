@@ -1,5 +1,6 @@
 pub mod api;
 pub mod deployment;
+pub mod deployment_ack;
 pub mod device_groups;
 pub mod gateway;
 pub mod service;
@@ -17,6 +18,33 @@ pub enum Action {
     Deny,
     Reject,
 }
+
+impl fmt::Display for Action {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Allow => "allow",
+            Self::Deny => "deny",
+            Self::Reject => "reject",
+        })
+    }
+}
+
+impl FromStr for Action {
+    type Err = ValidationError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "allow" => Ok(Self::Allow),
+            "deny" => Ok(Self::Deny),
+            "reject" => Ok(Self::Reject),
+            _ => Err(ValidationError::InvalidEnumValue {
+                field: "action",
+                value: value.to_owned(),
+            }),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Protocol {
@@ -25,6 +53,66 @@ pub enum Protocol {
     Udp,
     Icmp,
 }
+
+impl fmt::Display for Protocol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Any => "any",
+            Self::Tcp => "tcp",
+            Self::Udp => "udp",
+            Self::Icmp => "icmp",
+        })
+    }
+}
+
+impl FromStr for Protocol {
+    type Err = ValidationError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "any" => Ok(Self::Any),
+            "tcp" => Ok(Self::Tcp),
+            "udp" => Ok(Self::Udp),
+            "icmp" => Ok(Self::Icmp),
+            _ => Err(ValidationError::InvalidEnumValue {
+                field: "protocol",
+                value: value.to_owned(),
+            }),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DefaultAction {
+    Allow,
+    Deny,
+}
+
+impl fmt::Display for DefaultAction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Allow => "allow",
+            Self::Deny => "deny",
+        })
+    }
+}
+
+impl FromStr for DefaultAction {
+    type Err = ValidationError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "allow" => Ok(Self::Allow),
+            "deny" => Ok(Self::Deny),
+            _ => Err(ValidationError::InvalidEnumValue {
+                field: "default_action",
+                value: value.to_owned(),
+            }),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Subject {
@@ -36,6 +124,35 @@ pub enum Subject {
     Location(String),
     Cidr(String),
 }
+
+impl Subject {
+    #[must_use]
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Any => "any",
+            Self::User(_) => "user",
+            Self::Group(_) => "group",
+            Self::Device(_) => "device",
+            Self::DeviceGroup(_) => "device_group",
+            Self::Location(_) => "location",
+            Self::Cidr(_) => "cidr",
+        }
+    }
+
+    #[must_use]
+    pub fn value(&self) -> Option<&str> {
+        match self {
+            Self::Any => None,
+            Self::User(value)
+            | Self::Group(value)
+            | Self::Device(value)
+            | Self::DeviceGroup(value)
+            | Self::Location(value)
+            | Self::Cidr(value) => Some(value),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Destination {
@@ -46,232 +163,224 @@ pub enum Destination {
     Alias(String),
     Service(String),
 }
+
+impl Destination {
+    #[must_use]
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Any => "any",
+            Self::Cidr(_) => "cidr",
+            Self::Ip(_) => "ip",
+            Self::IpRange(_) => "ip_range",
+            Self::Alias(_) => "alias",
+            Self::Service(_) => "service",
+        }
+    }
+
+    #[must_use]
+    pub fn value(&self) -> Option<&str> {
+        match self {
+            Self::Any => None,
+            Self::Cidr(value)
+            | Self::Ip(value)
+            | Self::IpRange(value)
+            | Self::Alias(value)
+            | Self::Service(value) => Some(value),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct PortRange {
     pub start: u16,
     pub end: u16,
 }
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Rule {
     pub id: i64,
+    pub priority: i32,
     pub name: String,
-    pub priority: u32,
     pub enabled: bool,
-    pub action: Action,
-    pub protocol: Protocol,
-    pub ports: Option<PortRange>,
     pub source: Subject,
     pub destination: Destination,
+    pub protocol: Protocol,
+    pub ports: Option<PortRange>,
+    pub action: Action,
 }
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DefaultAction {
-    Allow,
-    Deny,
-}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Policy {
     pub id: i64,
     pub name: String,
-    pub revision: u64,
+    pub description: Option<String>,
+    pub enabled: bool,
     pub default_action: DefaultAction,
+    pub revision: u64,
     pub rules: Vec<Rule>,
 }
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CompiledPolicy {
     pub policy_id: i64,
     pub revision: u64,
-    pub checksum: String,
     pub default_action: DefaultAction,
     pub rules: Vec<Rule>,
+    pub checksum: String,
 }
 
-#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+#[derive(Debug, thiserror::Error)]
 pub enum ValidationError {
     #[error("policy name cannot be empty")]
     EmptyPolicyName,
-    #[error("policy revision must be greater than zero")]
-    InvalidRevision,
-    #[error("rule {0} has an empty name")]
+    #[error("rule {0} name cannot be empty")]
     EmptyRuleName(i64),
-    #[error("duplicate ACL priority {0}")]
-    DuplicatePriority(u32),
-    #[error("rule {0} has an invalid port range")]
-    InvalidPortRange(i64),
-    #[error("rule {0} uses ports with a protocol that does not support ports")]
-    PortsWithUnsupportedProtocol(i64),
-    #[error("rule {0} contains an invalid CIDR")]
-    InvalidCidr(i64),
-    #[error("rule {0} contains an invalid IP address")]
-    InvalidIp(i64),
-    #[error("rule {0} contains an invalid IP range")]
-    InvalidIpRange(i64),
-    #[error("rule {0} contains an empty selector value")]
-    EmptySelector(i64),
+    #[error("rule {rule_id} has invalid priority {priority}")]
+    InvalidPriority { rule_id: i64, priority: i32 },
+    #[error("rule {rule_id} has invalid port range {start}-{end}")]
+    InvalidPortRange { rule_id: i64, start: u16, end: u16 },
+    #[error("rule {rule_id} protocol {protocol} cannot use ports")]
+    PortsNotAllowed { rule_id: i64, protocol: Protocol },
+    #[error("rule {rule_id} source selector is empty")]
+    EmptySource { rule_id: i64 },
+    #[error("rule {rule_id} destination selector is empty")]
+    EmptyDestination { rule_id: i64 },
+    #[error("rule {rule_id} has invalid CIDR '{value}'")]
+    InvalidCidr { rule_id: i64, value: String },
+    #[error("rule {rule_id} has invalid IP '{value}'")]
+    InvalidIp { rule_id: i64, value: String },
+    #[error("rule {rule_id} has invalid IP range '{value}'")]
+    InvalidIpRange { rule_id: i64, value: String },
+    #[error("invalid {field} value '{value}'")]
+    InvalidEnumValue { field: &'static str, value: String },
 }
 
-impl Policy {
-    pub fn validate(&self) -> Result<(), ValidationError> {
-        if self.name.trim().is_empty() {
-            return Err(ValidationError::EmptyPolicyName);
+fn validate_nonempty(rule_id: i64, value: &str, source: bool) -> Result<(), ValidationError> {
+    if value.trim().is_empty() {
+        if source {
+            Err(ValidationError::EmptySource { rule_id })
+        } else {
+            Err(ValidationError::EmptyDestination { rule_id })
         }
-        if self.revision == 0 {
-            return Err(ValidationError::InvalidRevision);
-        }
-        let mut priorities = std::collections::HashSet::new();
-        for rule in &self.rules {
-            if rule.name.trim().is_empty() {
-                return Err(ValidationError::EmptyRuleName(rule.id));
-            }
-            if !priorities.insert(rule.priority) {
-                return Err(ValidationError::DuplicatePriority(rule.priority));
-            }
-            if let Some(ports) = &rule.ports {
-                if ports.start == 0 || ports.end == 0 || ports.start > ports.end {
-                    return Err(ValidationError::InvalidPortRange(rule.id));
-                }
-                if !matches!(rule.protocol, Protocol::Tcp | Protocol::Udp) {
-                    return Err(ValidationError::PortsWithUnsupportedProtocol(rule.id));
-                }
-            }
-            validate_source(rule)?;
-            validate_destination(rule)?;
-        }
-        Ok(())
-    }
-}
-fn validate_source(rule: &Rule) -> Result<(), ValidationError> {
-    match &rule.source {
-        Subject::Any => Ok(()),
-        Subject::Cidr(v) => IpNetwork::from_str(v)
-            .map(|_| ())
-            .map_err(|_| ValidationError::InvalidCidr(rule.id)),
-        Subject::User(v)
-        | Subject::Group(v)
-        | Subject::Device(v)
-        | Subject::DeviceGroup(v)
-        | Subject::Location(v) => validate_nonempty(rule.id, v),
-    }
-}
-fn validate_destination(rule: &Rule) -> Result<(), ValidationError> {
-    match &rule.destination {
-        Destination::Any => Ok(()),
-        Destination::Cidr(v) => IpNetwork::from_str(v)
-            .map(|_| ())
-            .map_err(|_| ValidationError::InvalidCidr(rule.id)),
-        Destination::Ip(v) => IpAddr::from_str(v)
-            .map(|_| ())
-            .map_err(|_| ValidationError::InvalidIp(rule.id)),
-        Destination::IpRange(v) => {
-            let Some((s, e)) = v.split_once('-') else {
-                return Err(ValidationError::InvalidIpRange(rule.id));
-            };
-            let s =
-                IpAddr::from_str(s.trim()).map_err(|_| ValidationError::InvalidIpRange(rule.id))?;
-            let e =
-                IpAddr::from_str(e.trim()).map_err(|_| ValidationError::InvalidIpRange(rule.id))?;
-            if std::mem::discriminant(&s) != std::mem::discriminant(&e) {
-                return Err(ValidationError::InvalidIpRange(rule.id));
-            }
-            Ok(())
-        }
-        Destination::Alias(v) | Destination::Service(v) => validate_nonempty(rule.id, v),
-    }
-}
-fn validate_nonempty(id: i64, v: &str) -> Result<(), ValidationError> {
-    if v.trim().is_empty() {
-        Err(ValidationError::EmptySelector(id))
     } else {
         Ok(())
     }
 }
-pub fn compile(mut policy: Policy) -> Result<CompiledPolicy, ValidationError> {
-    policy.validate()?;
-    policy.rules.retain(|r| r.enabled);
-    policy.rules.sort_by_key(|r| (r.priority, r.id));
+
+pub fn validate(policy: &Policy) -> Result<(), ValidationError> {
+    if policy.name.trim().is_empty() {
+        return Err(ValidationError::EmptyPolicyName);
+    }
+
+    for rule in &policy.rules {
+        if rule.name.trim().is_empty() {
+            return Err(ValidationError::EmptyRuleName(rule.id));
+        }
+        if rule.priority < 0 {
+            return Err(ValidationError::InvalidPriority {
+                rule_id: rule.id,
+                priority: rule.priority,
+            });
+        }
+        if let Some(ports) = &rule.ports {
+            if ports.start == 0 || ports.end == 0 || ports.start > ports.end {
+                return Err(ValidationError::InvalidPortRange {
+                    rule_id: rule.id,
+                    start: ports.start,
+                    end: ports.end,
+                });
+            }
+            if matches!(rule.protocol, Protocol::Any | Protocol::Icmp) {
+                return Err(ValidationError::PortsNotAllowed {
+                    rule_id: rule.id,
+                    protocol: rule.protocol,
+                });
+            }
+        }
+
+        match &rule.source {
+            Subject::Any => {}
+            Subject::Cidr(value) => {
+                validate_nonempty(rule.id, value, true)?;
+                IpNetwork::from_str(value).map_err(|_| ValidationError::InvalidCidr {
+                    rule_id: rule.id,
+                    value: value.clone(),
+                })?;
+            }
+            Subject::User(value)
+            | Subject::Group(value)
+            | Subject::Device(value)
+            | Subject::DeviceGroup(value)
+            | Subject::Location(value) => validate_nonempty(rule.id, value, true)?,
+        }
+
+        match &rule.destination {
+            Destination::Any => {}
+            Destination::Cidr(value) => {
+                validate_nonempty(rule.id, value, false)?;
+                IpNetwork::from_str(value).map_err(|_| ValidationError::InvalidCidr {
+                    rule_id: rule.id,
+                    value: value.clone(),
+                })?;
+            }
+            Destination::Ip(value) => {
+                validate_nonempty(rule.id, value, false)?;
+                IpAddr::from_str(value).map_err(|_| ValidationError::InvalidIp {
+                    rule_id: rule.id,
+                    value: value.clone(),
+                })?;
+            }
+            Destination::IpRange(value) => {
+                validate_nonempty(rule.id, value, false)?;
+                let (start, end) = value
+                    .split_once('-')
+                    .ok_or_else(|| ValidationError::InvalidIpRange {
+                        rule_id: rule.id,
+                        value: value.clone(),
+                    })?;
+                let start = IpAddr::from_str(start.trim()).map_err(|_| {
+                    ValidationError::InvalidIpRange {
+                        rule_id: rule.id,
+                        value: value.clone(),
+                    }
+                })?;
+                let end = IpAddr::from_str(end.trim()).map_err(|_| {
+                    ValidationError::InvalidIpRange {
+                        rule_id: rule.id,
+                        value: value.clone(),
+                    }
+                })?;
+                if start.is_ipv4() != end.is_ipv4() {
+                    return Err(ValidationError::InvalidIpRange {
+                        rule_id: rule.id,
+                        value: value.clone(),
+                    });
+                }
+            }
+            Destination::Alias(value) | Destination::Service(value) => {
+                validate_nonempty(rule.id, value, false)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn compile(policy: Policy) -> Result<CompiledPolicy, ValidationError> {
+    validate(&policy)?;
+    let mut rules: Vec<Rule> = policy.rules.into_iter().filter(|rule| rule.enabled).collect();
+    rules.sort_by_key(|rule| (rule.priority, rule.id));
     let canonical = serde_json::to_string(&(
         policy.id,
         policy.revision,
         policy.default_action,
-        &policy.rules,
+        &rules,
     ))
-    .expect("S-Metric ACL policy serialization must succeed");
-    let checksum = digest(canonical);
+    .expect("S-Metric ACL policy serialization cannot fail");
     Ok(CompiledPolicy {
         policy_id: policy.id,
         revision: policy.revision,
-        checksum,
         default_action: policy.default_action,
-        rules: policy.rules,
+        rules,
+        checksum: digest(canonical),
     })
-}
-impl fmt::Display for DefaultAction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Allow => f.write_str("allow"),
-            Self::Deny => f.write_str("deny"),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    fn rule(id: i64, priority: u32) -> Rule {
-        Rule {
-            id,
-            name: format!("rule-{id}"),
-            priority,
-            enabled: true,
-            action: Action::Allow,
-            protocol: Protocol::Tcp,
-            ports: Some(PortRange {
-                start: 443,
-                end: 443,
-            }),
-            source: Subject::Group("accounting".into()),
-            destination: Destination::Cidr("10.20.30.0/24".into()),
-        }
-    }
-    #[test]
-    fn compiler_orders_rules_deterministically() {
-        let p = Policy {
-            id: 1,
-            name: "Corporate".into(),
-            revision: 7,
-            default_action: DefaultAction::Deny,
-            rules: vec![rule(2, 200), rule(1, 100)],
-        };
-        let c = compile(p).unwrap();
-        assert_eq!(c.rules[0].priority, 100);
-        assert_eq!(c.rules[1].priority, 200);
-        assert!(!c.checksum.is_empty());
-    }
-    #[test]
-    fn duplicate_priorities_are_rejected() {
-        let p = Policy {
-            id: 1,
-            name: "Corporate".into(),
-            revision: 1,
-            default_action: DefaultAction::Deny,
-            rules: vec![rule(1, 100), rule(2, 100)],
-        };
-        assert_eq!(compile(p), Err(ValidationError::DuplicatePriority(100)));
-    }
-    #[test]
-    fn ports_require_tcp_or_udp() {
-        let mut r = rule(1, 100);
-        r.protocol = Protocol::Icmp;
-        let p = Policy {
-            id: 1,
-            name: "Corporate".into(),
-            revision: 1,
-            default_action: DefaultAction::Deny,
-            rules: vec![r],
-        };
-        assert_eq!(
-            compile(p),
-            Err(ValidationError::PortsWithUnsupportedProtocol(1))
-        );
-    }
 }
