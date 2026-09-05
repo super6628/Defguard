@@ -12,6 +12,7 @@ window.__WHITE_LABEL__ = {
   navLogoUrl: '',
   logoDarkUrl: '',
   faviconUrl: '',
+  loginImageUrl: '',
   primaryColor: '',
   loginTitle: '',
   loginSubtitle: '',
