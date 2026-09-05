@@ -27,19 +27,31 @@ pub async fn compile_location_firewall(
     pool: &PgPool,
     location_id: i64,
 ) -> Result<EffectiveLocationFirewall, GatewayEnforcementError> {
-    compile_location_firewall_excluding(pool, location_id, None).await
+    compile_location_firewall_overrides(pool, location_id, None, None).await
 }
 
 /// Compile the effective location firewall while excluding one policy from consideration.
 ///
-/// This is used by destructive policy operations so the post-delete gateway configuration can be
-/// validated before the policy row and its assignments are removed from the database.
+/// This is used by destructive/disable/unassign operations so the resulting gateway configuration
+/// can be validated before the database mutation is committed.
 pub async fn compile_location_firewall_without_policy(
     pool: &PgPool,
     location_id: i64,
     excluded_policy_id: i64,
 ) -> Result<EffectiveLocationFirewall, GatewayEnforcementError> {
-    compile_location_firewall_excluding(pool, location_id, Some(excluded_policy_id)).await
+    compile_location_firewall_overrides(pool, location_id, Some(excluded_policy_id), None).await
+}
+
+/// Compile the effective location firewall while force-including one published policy.
+///
+/// This supports prospective enable/assignment operations. The policy's current revision must
+/// already be published, but the policy/assignment does not have to be enabled yet.
+pub async fn compile_location_firewall_with_policy(
+    pool: &PgPool,
+    location_id: i64,
+    included_policy_id: i64,
+) -> Result<EffectiveLocationFirewall, GatewayEnforcementError> {
+    compile_location_firewall_overrides(pool, location_id, None, Some(included_policy_id)).await
 }
 
 /// Compile one authoritative firewall configuration for a VPN location.
@@ -47,27 +59,37 @@ pub async fn compile_location_firewall_without_policy(
 /// Policies are ordered by policy id for now. Rules retain each policy's compiled rule ordering.
 /// A future explicit policy-priority field can replace policy-id ordering without changing this
 /// aggregation boundary.
-async fn compile_location_firewall_excluding(
+async fn compile_location_firewall_overrides(
     pool: &PgPool,
     location_id: i64,
     excluded_policy_id: Option<i64>,
+    included_policy_id: Option<i64>,
 ) -> Result<EffectiveLocationFirewall, GatewayEnforcementError> {
     let policy_ids = sqlx::query_scalar::<_, i64>(
-        "SELECT p.id \
-         FROM smetric_acl_policy p \
-         JOIN smetric_acl_policy_assignment a ON a.policy_id = p.id \
-         WHERE a.location_id = $1 \
-           AND a.enabled = TRUE \
-           AND p.enabled = TRUE \
-           AND ($2::bigint IS NULL OR p.id <> $2) \
+        "SELECT DISTINCT candidate.id \
+         FROM ( \
+             SELECT p.id \
+             FROM smetric_acl_policy p \
+             JOIN smetric_acl_policy_assignment a ON a.policy_id = p.id \
+             WHERE a.location_id = $1 \
+               AND a.enabled = TRUE \
+               AND p.enabled = TRUE \
+             UNION ALL \
+             SELECT p.id \
+             FROM smetric_acl_policy p \
+             WHERE p.id = $3 \
+         ) candidate \
+         JOIN smetric_acl_policy p ON p.id = candidate.id \
+         WHERE ($2::bigint IS NULL OR p.id <> $2) \
            AND EXISTS ( \
                SELECT 1 FROM smetric_acl_revision rev \
                WHERE rev.policy_id = p.id AND rev.revision = p.revision \
            ) \
-         ORDER BY p.id",
+         ORDER BY candidate.id",
     )
     .bind(location_id)
     .bind(excluded_policy_id)
+    .bind(included_policy_id)
     .fetch_all(pool)
     .await?;
 
