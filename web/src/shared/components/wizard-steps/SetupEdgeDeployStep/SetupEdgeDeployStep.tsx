@@ -246,29 +246,37 @@ const OtherDeploymentMethod = ({
 };
 
 const OthersTab = () => {
+  const documentationUrl = branding.documentationUrl;
+
   return (
     <>
       <TabContentHeader
         title={m.edge_setup_step_deploy_tabs_other_title()}
         subtitle={m.edge_setup_step_deploy_tabs_other_subtitle()}
       />
-      <div id="other-deployment-methods">
-        <OtherDeploymentMethod
-          name={`Kubernetes`}
-          link={`https://docs.defguard.net/deployment-strategies/kubernetes#deployment`}
-          image={kubernetesImage}
-        />
-        <OtherDeploymentMethod
-          name={`Amazon Machine Image`}
-          link={`https://docs.defguard.net/deployment-strategies/amis-and-aws-cloudformation`}
-          image={amazonImage}
-        />
-        <OtherDeploymentMethod
-          name={`Terraform`}
-          link={`https://docs.defguard.net/deployment-strategies/terraform`}
-          image={teraImage}
-        />
-      </div>
+      {documentationUrl ? (
+        <div id="other-deployment-methods">
+          <OtherDeploymentMethod
+            name={`Kubernetes`}
+            link={documentationUrl}
+            image={kubernetesImage}
+          />
+          <OtherDeploymentMethod
+            name={`Amazon Machine Image`}
+            link={documentationUrl}
+            image={amazonImage}
+          />
+          <OtherDeploymentMethod
+            name={`Terraform`}
+            link={documentationUrl}
+            image={teraImage}
+          />
+        </div>
+      ) : (
+        <AppText font={TextStyle.TBodySm400} color={ThemeVariable.FgFaded}>
+          Contact your administrator for deployment documentation.
+        </AppText>
+      )}
       <SizedBox height={ThemeSpacing.Lg} />
       <AppText font={TextStyle.TBodySm400} color={ThemeVariable.FgFaded}>
         {m.edge_setup_step_deploy_tabs_other_launch()}
