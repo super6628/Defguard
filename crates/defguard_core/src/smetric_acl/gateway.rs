@@ -4,7 +4,7 @@ use defguard_common::{
     gateway_event::GatewayCommand,
     gateway_types::{
         FirewallConfig, FirewallPolicy, FirewallRule, IpAddress, IpRange, IpVersion, Port,
-        PortRange as GatewayPortRange, Protocol as GatewayProtocol,
+        PortRange as GatewayPortRange, Protocol as GatewayProtocol, SnatBinding,
     },
 };
 use ipnetwork::IpNetwork;
@@ -70,9 +70,6 @@ pub async fn prepare_deployments(
         return Err(GatewayEnforcementError::NoAssignments(policy_id));
     }
 
-    // Resolve every effective location configuration before changing desired deployment state.
-    // This prevents a selector failure at a later location from leaving earlier locations marked
-    // as desired even though no gateway commands will be sent by the caller.
     let mut prepared = Vec::with_capacity(location_ids.len());
     for location_id in location_ids {
         let config = translate_policy_for_location(pool, &policy, location_id).await?;
@@ -102,10 +99,6 @@ pub async fn prepare_deployments(
 }
 
 fn effective_config_checksum(config: &FirewallConfig) -> String {
-    // Firewall gateway types are intentionally protocol-neutral and do not currently derive
-    // Serialize. Their Debug representation is deterministic for these enum/Vec based types,
-    // and captures resolved identity IPs, making this checksum change when effective policy
-    // membership changes even if the policy definition revision does not.
     digest(format!("{config:?}"))
 }
 
@@ -122,11 +115,51 @@ pub async fn translate_policy_for_location(
     for rule in &policy.rules {
         rules.push(translate_rule(pool, rule, policy.revision, location_id).await?);
     }
+    let snat_bindings = resolve_snat_bindings(pool, location_id).await?;
     Ok(FirewallConfig {
         default_policy,
         rules,
-        snat_bindings: Vec::new(),
+        snat_bindings,
     })
+}
+
+async fn resolve_snat_bindings(
+    pool: &PgPool,
+    location_id: i64,
+) -> Result<Vec<SnatBinding>, sqlx::Error> {
+    let bindings = sqlx::query_as::<_, (i64, i64, IpAddr)>(
+        "SELECT id, user_id, public_ip FROM user_snat_binding WHERE location_id = $1 ORDER BY id",
+    )
+    .bind(location_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut result = Vec::with_capacity(bindings.len());
+    for (binding_id, user_id, public_ip) in bindings {
+        let mut source_ips = sqlx::query_scalar::<_, IpAddr>(
+            "SELECT DISTINCT unnest(wnd.wireguard_ips)::inet FROM wireguard_network_device wnd JOIN device d ON d.id = wnd.device_id JOIN \"user\" u ON u.id = d.user_id WHERE wnd.wireguard_network_id = $1 AND u.id = $2 AND u.is_active = TRUE AND d.configured = TRUE ORDER BY 1",
+        )
+        .bind(location_id)
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?;
+        source_ips.retain(|ip| ip.is_ipv4() == public_ip.is_ipv4());
+        source_ips.sort();
+        source_ips.dedup();
+        if source_ips.is_empty() {
+            continue;
+        }
+        result.push(SnatBinding {
+            id: binding_id,
+            source_addrs: source_ips
+                .into_iter()
+                .map(|ip| IpAddress::Ip(ip.to_string()))
+                .collect(),
+            public_ip: public_ip.to_string(),
+            comment: Some(format!("S-Metric preserved user {user_id} SNAT binding {binding_id}")),
+        });
+    }
+    Ok(result)
 }
 
 async fn translate_rule(
