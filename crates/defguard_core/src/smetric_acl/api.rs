@@ -31,6 +31,7 @@ pub fn router() -> Router<AppState> {
             route_get(deployment_status),
         )
         .merge(super::device_groups::router())
+        .merge(super::deployment_ack::router())
 }
 
 #[derive(Debug, Serialize)]
