@@ -154,3 +154,34 @@ async fn test_acl_apply_endpoints_reject_empty_batches(
         .await;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
+
+#[sqlx::test]
+async fn test_duplicate_rule_apply_rolls_back_batch(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = setup_pool(options).await;
+    let (mut client, _) = make_test_client(pool).await;
+    authenticate_admin(&mut client).await;
+
+    let rule = make_rule();
+    let response = client.post("/api/v1/acl/rule").json(&rule).send().await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: ApiAclRule = response.json().await;
+    assert_eq!(created.state, RuleState::New);
+
+    let response = client
+        .put("/api/v1/acl/rule/apply")
+        .json(&json!({ "rules": [created.id, created.id] }))
+        .send()
+        .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let response = client
+        .get(format!("/api/v1/acl/rule/{}", created.id))
+        .send()
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let persisted: ApiAclRule = response.json().await;
+    assert_eq!(persisted.state, RuleState::New);
+}
