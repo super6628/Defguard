@@ -9,6 +9,7 @@ export type BrandingConfig = {
   logoUrl: string;
   navLogoUrl: string;
   logoDarkUrl: string;
+  loginImageUrl: string;
   faviconUrl: string;
   primaryColor: string;
   loginTitle: string;
@@ -29,6 +30,7 @@ type ServerBranding = {
   logo_url: string;
   nav_logo_url: string;
   logo_dark_url: string;
+  login_image_url: string;
   favicon_url: string;
   primary_color: string;
   login_title: string;
@@ -52,6 +54,7 @@ export const brandingDefaults: BrandingConfig = {
   logoUrl: '',
   navLogoUrl: '',
   logoDarkUrl: '',
+  loginImageUrl: '',
   faviconUrl: '',
   primaryColor: '',
   loginTitle: '',
@@ -92,6 +95,7 @@ const fromServerBranding = (server: ServerBranding): BrandingConfig => ({
   logoUrl: server.logo_url,
   navLogoUrl: server.nav_logo_url,
   logoDarkUrl: server.logo_dark_url,
+  loginImageUrl: server.login_image_url,
   faviconUrl: server.favicon_url,
   primaryColor: server.primary_color,
   loginTitle: server.login_title,
@@ -112,6 +116,7 @@ export const toServerBranding = (config: BrandingConfig): ServerBranding => ({
   logo_url: config.logoUrl,
   nav_logo_url: config.navLogoUrl,
   logo_dark_url: config.logoDarkUrl,
+  login_image_url: config.loginImageUrl,
   favicon_url: config.faviconUrl,
   primary_color: config.primaryColor,
   login_title: config.loginTitle,
