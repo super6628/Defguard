@@ -97,3 +97,60 @@ async fn test_rule_rejects_explicit_allow_deny_collisions(
         .await;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
+
+#[sqlx::test]
+async fn test_acl_objects_reject_blank_names(_: PgPoolOptions, options: PgConnectOptions) {
+    let pool = setup_pool(options).await;
+    let (mut client, _) = make_test_client(pool).await;
+    authenticate_admin(&mut client).await;
+
+    let mut rule = make_rule();
+    rule.name = "   ".to_owned();
+    let response = client.post("/api/v1/acl/rule").json(&rule).send().await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let mut alias = make_alias();
+    alias.name = "   ".to_owned();
+    let response = client.post("/api/v1/acl/alias").json(&alias).send().await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let mut destination = make_destination();
+    destination.name = "   ".to_owned();
+    let response = client
+        .post("/api/v1/acl/destination")
+        .json(&destination)
+        .send()
+        .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test]
+async fn test_acl_apply_endpoints_reject_empty_batches(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = setup_pool(options).await;
+    let (mut client, _) = make_test_client(pool).await;
+    authenticate_admin(&mut client).await;
+
+    let response = client
+        .put("/api/v1/acl/rule/apply")
+        .json(&json!({ "rules": [] }))
+        .send()
+        .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let response = client
+        .put("/api/v1/acl/alias/apply")
+        .json(&json!({ "aliases": [] }))
+        .send()
+        .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let response = client
+        .put("/api/v1/acl/destination/apply")
+        .json(&json!({ "destinations": [] }))
+        .send()
+        .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
