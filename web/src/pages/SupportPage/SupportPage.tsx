@@ -3,6 +3,7 @@ import { useSuspenseQuery } from '@tanstack/react-query';
 import { Suspense, useMemo } from 'react';
 import { m } from '../../paraglide/messages';
 import api from '../../shared/api/api';
+import { brandConfig } from '../../shared/branding';
 import {
   ContextualHelpKey,
   ContextualHelpSidebar,
@@ -54,6 +55,9 @@ const PageContent = () => {
     [licenseInfo],
   );
 
+  const documentationUrl = brandConfig.documentationUrl ?? externalLink.defguard.docs;
+  const supportEmail = brandConfig.supportEmail ?? 'support@defguard.net';
+
   return (
     <SettingsCard>
       <MarkedSection icon="help">
@@ -71,9 +75,7 @@ const PageContent = () => {
               variant="primary"
               text={m.support_page_docs_btn()}
               iconRight="open-in-new-window"
-              onClick={() =>
-                window.open(externalLink.defguard.docs, '_blank', 'noopener,noreferrer')
-              }
+              onClick={() => window.open(documentationUrl, '_blank', 'noopener,noreferrer')}
             />
           </div>
         </div>
@@ -157,7 +159,7 @@ const PageContent = () => {
             <SizedBox height={ThemeSpacing.Xl} />
             <AppText font={TextStyle.TBodySm400} color={ThemeVariable.FgDefault}>
               {m.support_page_email_desc()}{' '}
-              <a href="mailto:support@defguard.net">support@defguard.net</a>
+              <a href={`mailto:${supportEmail}`}>{supportEmail}</a>
             </AppText>
           </MarkedSection>
         </>
