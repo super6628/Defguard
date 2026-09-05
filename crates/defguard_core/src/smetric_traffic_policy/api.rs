@@ -55,6 +55,7 @@ impl IntoResponse for ApiError {
             }
             TrafficPolicyError::EmptyName
             | TrafficPolicyError::MissingDestinations
+            | TrafficPolicyError::NeverPublished(_)
             | TrafficPolicyError::InvalidStoredValue(_) => StatusCode::BAD_REQUEST,
             TrafficPolicyError::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
@@ -121,7 +122,8 @@ pub async fn set_policy_enabled(
     Path(policy_id): Path<i64>,
     Json(input): Json<SetEnabled>,
 ) -> Result<Json<TrafficPolicy>, ApiError> {
-    Ok(Json(set_enabled(&state.pool, policy_id, input.enabled).await?))
+    set_enabled(&state.pool, policy_id, input.enabled).await?;
+    Ok(Json(load_policy(&state.pool, policy_id).await?))
 }
 
 pub async fn publish(
