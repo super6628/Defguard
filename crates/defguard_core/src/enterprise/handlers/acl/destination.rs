@@ -65,7 +65,6 @@ impl EditAclDestination {
         alias_id: Id,
     ) -> Result<(), AclError> {
         debug!("Creating related objects for ACL alias {self:?}");
-        // save related destination ranges
         let destination = parse_destination_addresses(&self.addresses)?;
         for range in destination.ranges {
             let obj = AclAliasDestinationRange {
@@ -82,8 +81,6 @@ impl EditAclDestination {
     }
 }
 
-/// An ACL destination.
-/// All relations represented as arrays of IDs.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, ToSchema)]
 pub struct ApiAclDestination {
     #[serde(default)]
@@ -107,7 +104,6 @@ pub(crate) struct ApplyAclDestinationsData {
 }
 
 impl ApiAclDestination {
-    /// Creates new [`AclAlias`] with all related objects based on [`AclAliasInfo`].
     pub(crate) async fn create_from_api(
         pool: &PgPool,
         api_alias: &EditAclDestination,
@@ -124,11 +120,9 @@ impl ApiAclDestination {
             .await?;
 
         transaction.commit().await?;
-        let result = Self::from(alias.to_info(pool).await?);
-        Ok(result)
+        Ok(Self::from(alias.to_info(pool).await?))
     }
 
-    /// Updates [`AclAlias`] with all it's related objects based on [`AclAliasInfo`].
     pub(crate) async fn update_from_api(
         pool: &PgPool,
         id: Id,
@@ -136,8 +130,6 @@ impl ApiAclDestination {
         actor: &str,
     ) -> Result<Self, AclError> {
         let mut transaction = pool.begin().await?;
-
-        // find existing alias
         let existing_alias =
             AclAlias::find_by_id_and_kind(&mut *transaction, id, AliasKind::Destination)
                 .await?
@@ -146,16 +138,11 @@ impl ApiAclDestination {
                     AclError::AliasNotFoundError(id)
                 })?;
 
-        // Convert alias from API to model.
         let mut alias = AclAlias::try_from(api_alias)?;
         alias.stamp_modified(actor);
 
-        // perform appropriate updates depending on existing alias' state
         let alias = match existing_alias.state {
             AliasState::Applied => {
-                // create new `AliasState::Modified` alias
-                debug!("Alias {id} state is `Applied` - creating new `Modified` alias object",);
-                // remove old modifications of this alias
                 let result = query!("DELETE FROM aclalias WHERE parent_id = $1", id)
                     .execute(&mut *transaction)
                     .await?;
@@ -164,35 +151,23 @@ impl ApiAclDestination {
                     result.rows_affected(),
                 );
 
-                // save as a new alias with appropriate parent_id and state
                 alias.state = AliasState::Modified;
                 alias.parent_id = Some(id);
                 let alias = alias.save(&mut *transaction).await?;
-
-                // create related objects
                 api_alias
                     .create_related_objects(&mut transaction, alias.id)
                     .await?;
-
                 alias
             }
             AliasState::Modified => {
-                debug!(
-                    "Alias {id} is a modification to alias {:?} - updating the modification",
-                    existing_alias.parent_id,
-                );
-                // update the not-yet applied modification itself
                 let mut alias = alias.with_id(id);
                 alias.parent_id = existing_alias.parent_id;
                 alias.state = existing_alias.state;
                 alias.save(&mut *transaction).await?;
-
-                // recreate related objects
                 acl_delete_related_objects(&mut transaction, alias.id).await?;
                 api_alias
                     .create_related_objects(&mut transaction, alias.id)
                     .await?;
-
                 alias
             }
         };
@@ -221,22 +196,7 @@ impl From<AclAliasInfo> for ApiAclDestination {
     }
 }
 
-/// List ACL destinations
-#[utoipa::path(
-    get,
-    path = "/api/v1/acl/destination",
-    tag = "ACL",
-    responses(
-        (status = 200, description = "All ACL destinations.", body = [ApiAclDestination]),
-        (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
-        (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
-        (status = 500, description = "Unable to list ACL destinations.", body = ApiErrorResponse, example = json!({"msg": "Internal server error"})),
-    ),
-    security(
-        ("cookie" = []),
-        ("api_token" = [])
-    )
-)]
+#[utoipa::path(get, path = "/api/v1/acl/destination", tag = "ACL", responses((status = 200, body = [ApiAclDestination])))]
 pub(crate) async fn list_acl_destinations(
     _admin: AdminRole,
     State(appstate): State<AppState>,
@@ -246,71 +206,30 @@ pub(crate) async fn list_acl_destinations(
     let aliases = AclAlias::all_of_kind(&appstate.pool, AliasKind::Destination).await?;
     let mut api_aliases = Vec::<ApiAclDestination>::with_capacity(aliases.len());
     for alias in &aliases {
-        // TODO: may require optimisation wrt. sql queries
         let info = alias.to_info(&appstate.pool).await.map_err(|err| {
             error!("Error retrieving ACL destination {alias:?}: {err}");
             err
         })?;
         api_aliases.push(info.into());
     }
-    info!("User {} listed ACL destinations", session.user.username);
     Ok(ApiResponse::json(api_aliases, StatusCode::OK))
 }
 
-/// Count ACL destinations by state
-#[utoipa::path(
-    get,
-    path = "/api/v1/acl/destination/count",
-    tag = "ACL",
-    responses(
-        (status = 200, description = "Number of ACL destinations in each state.", body = AclStateCount),
-        (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
-        (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
-        (status = 500, description = "Unable to count ACL destinations.", body = ApiErrorResponse, example = json!({"msg": "Internal server error"})),
-    ),
-    security(
-        ("cookie" = []),
-        ("api_token" = [])
-    )
-)]
+#[utoipa::path(get, path = "/api/v1/acl/destination/count", tag = "ACL", responses((status = 200, body = AclStateCount)))]
 pub(crate) async fn count_acl_destinations(
     _admin: AdminRole,
     State(appstate): State<AppState>,
 ) -> ApiResult {
     let counts = query_as::<_, AclStateCount>(
-        "SELECT \
-            COUNT(*) FILTER (WHERE state = 'applied'::aclalias_state) AS applied, \
-            COUNT(*) FILTER (WHERE state = 'modified'::aclalias_state) AS pending \
-        FROM aclalias \
-        WHERE kind = $1",
+        "SELECT COUNT(*) FILTER (WHERE state = 'applied'::aclalias_state) AS applied, COUNT(*) FILTER (WHERE state = 'modified'::aclalias_state) AS pending FROM aclalias WHERE kind = $1",
     )
     .bind(AliasKind::Destination)
     .fetch_one(&appstate.pool)
     .await?;
-
     Ok(ApiResponse::json(counts, StatusCode::OK))
 }
 
-/// Get an ACL destination
-#[utoipa::path(
-    get,
-    path = "/api/v1/acl/destination/{id}",
-    tag = "ACL",
-    params(
-        ("id" = i64, Path, description = "ID of the ACL destination.")
-    ),
-    responses(
-        (status = 200, description = "ACL destination details.", body = ApiAclDestination),
-        (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
-        (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
-        (status = 404, description = "ACL destination not found."),
-        (status = 500, description = "Unable to get ACL destination.", body = ApiErrorResponse, example = json!({"msg": "Internal server error"})),
-    ),
-    security(
-        ("cookie" = []),
-        ("api_token" = [])
-    )
-)]
+#[utoipa::path(get, path = "/api/v1/acl/destination/{id}", tag = "ACL", params(("id" = i64, Path)), responses((status = 200, body = ApiAclDestination)))]
 pub(crate) async fn get_acl_destination(
     _license: LicenseInfo,
     _admin: AdminRole,
@@ -318,50 +237,19 @@ pub(crate) async fn get_acl_destination(
     session: SessionInfo,
     Path(id): Path<Id>,
 ) -> ApiResult {
-    debug!(
-        "User {} retrieving ACL destination {id}",
-        session.user.username
-    );
     let (alias, status) =
         match AclAlias::find_by_id_and_kind(&appstate.pool, id, AliasKind::Destination).await? {
             Some(alias) => (
-                json!(ApiAclDestination::from(
-                    alias.to_info(&appstate.pool).await.map_err(|err| {
-                        error!("Error retrieving ACL destination {alias:?}: {err}");
-                        err
-                    })?
-                )),
+                json!(ApiAclDestination::from(alias.to_info(&appstate.pool).await?)),
                 StatusCode::OK,
             ),
             None => (Value::Null, StatusCode::NOT_FOUND),
         };
-
-    info!(
-        "User {} retrieved ACL destination {id}",
-        session.user.username
-    );
+    info!("User {} retrieved ACL destination {id}", session.user.username);
     Ok(ApiResponse::new(alias, status))
 }
 
-/// Create an ACL destination
-#[utoipa::path(
-    post,
-    path = "/api/v1/acl/destination",
-    tag = "ACL",
-    request_body(content = EditAclDestination, example = json!({"name": "internal-web", "addresses": "10.0.0.0/24", "ports": "80, 443", "protocols": [6], "any_address": false, "any_port": false, "any_protocol": false})),
-    responses(
-        (status = 201, description = "ACL destination created.", body = ApiAclDestination),
-        (status = 400, description = "Destination addresses, ports or protocols are missing.", body = ApiErrorResponse, example = json!({"msg": "Must provide alias addresses, ports, or protocols"})),
-        (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
-        (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
-        (status = 422, description = "Invalid addresses, ports or protocols.", body = ApiErrorResponse, example = json!({"msg": "Unprocessable entity"})),
-        (status = 500, description = "Unable to create ACL destination.", body = ApiErrorResponse, example = json!({"msg": "Internal server error"})),
-    ),
-    security(
-        ("cookie" = []),
-        ("api_token" = [])
-    )
-)]
+#[utoipa::path(post, path = "/api/v1/acl/destination", tag = "ACL", request_body = EditAclDestination, responses((status = 201, body = ApiAclDestination)))]
 pub(crate) async fn create_acl_destination(
     _license: LicenseInfo,
     _admin: AdminRole,
@@ -369,47 +257,12 @@ pub(crate) async fn create_acl_destination(
     session: SessionInfo,
     Json(data): Json<EditAclDestination>,
 ) -> ApiResult {
-    debug!(
-        "User {} creating ACL destination {data:?}",
-        session.user.username
-    );
     data.validate()?;
-    let alias = ApiAclDestination::create_from_api(&appstate.pool, &data, &session.user.username)
-        .await
-        .map_err(|err| {
-            error!("Error creating ACL destination {data:?}: {err}");
-            err
-        })?;
-    info!(
-        "User {} created ACL destination {}",
-        session.user.username, alias.id
-    );
+    let alias = ApiAclDestination::create_from_api(&appstate.pool, &data, &session.user.username).await?;
     Ok(ApiResponse::json(alias, StatusCode::CREATED))
 }
 
-/// Update an ACL destination
-#[utoipa::path(
-    put,
-    path = "/api/v1/acl/destination/{id}",
-    tag = "ACL",
-    request_body = EditAclDestination,
-    params(
-        ("id" = i64, Path, description = "ID of the ACL destination.",)
-    ),
-    responses(
-        (status = 200, description = "ACL destination updated.", body = ApiAclDestination),
-        (status = 400, description = "Destination addresses, ports or protocols are missing.", body = ApiErrorResponse, example = json!({"msg": "Must provide alias addresses, ports, or protocols"})),
-        (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
-        (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
-        (status = 404, description = "ACL destination not found.", body = ApiErrorResponse, example = json!({"msg": "Destination 1 not found"})),
-        (status = 422, description = "Invalid addresses, ports or protocols.", body = ApiErrorResponse, example = json!({"msg": "Unprocessable entity"})),
-        (status = 500, description = "Unable to update ACL destination.", body = ApiErrorResponse, example = json!({"msg": "Internal server error"})),
-    ),
-    security(
-        ("cookie" = []),
-        ("api_token" = [])
-    )
-)]
+#[utoipa::path(put, path = "/api/v1/acl/destination/{id}", tag = "ACL", params(("id" = i64, Path)), request_body = EditAclDestination, responses((status = 200, body = ApiAclDestination)))]
 pub(crate) async fn update_acl_destination(
     _license: LicenseInfo,
     _admin: AdminRole,
@@ -418,43 +271,12 @@ pub(crate) async fn update_acl_destination(
     Path(id): Path<Id>,
     Json(data): Json<EditAclDestination>,
 ) -> ApiResult {
-    debug!(
-        "User {} updating ACL destination {data:?}",
-        session.user.username
-    );
     data.validate()?;
-    let alias =
-        ApiAclDestination::update_from_api(&appstate.pool, id, &data, &session.user.username)
-            .await
-            .map_err(|err| {
-                error!("Error updating ACL destination {data:?}: {err}");
-                err
-            })?;
-    info!("User {} updated ACL destination", session.user.username);
+    let alias = ApiAclDestination::update_from_api(&appstate.pool, id, &data, &session.user.username).await?;
     Ok(ApiResponse::json(alias, StatusCode::OK))
 }
 
-/// Delete an ACL destination
-#[utoipa::path(
-    delete,
-    path = "/api/v1/acl/destination/{id}",
-    tag = "ACL",
-    params(
-        ("id" = i64, Path, description = "ID of the ACL destination.",)
-    ),
-    responses(
-        (status = 200, description = "ACL destination deleted."),
-        (status = 400, description = "Destination is used by existing ACL rules.", body = ApiErrorResponse, example = json!({"msg": "Destination 1 is used by some existing ACL rules"})),
-        (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
-        (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
-        (status = 404, description = "ACL destination not found.", body = ApiErrorResponse, example = json!({"msg": "Destination 1 not found"})),
-        (status = 500, description = "Unable to delete ACL destination.", body = ApiErrorResponse, example = json!({"msg": "Internal server error"})),
-    ),
-    security(
-        ("cookie" = []),
-        ("api_token" = [])
-    )
-)]
+#[utoipa::path(delete, path = "/api/v1/acl/destination/{id}", tag = "ACL", params(("id" = i64, Path)), responses((status = 200)))]
 pub(crate) async fn delete_acl_destination(
     _license: LicenseInfo,
     _admin: AdminRole,
@@ -462,42 +284,12 @@ pub(crate) async fn delete_acl_destination(
     session: SessionInfo,
     Path(id): Path<Id>,
 ) -> ApiResult {
-    debug!(
-        "User {} deleting ACL destination {id}",
-        session.user.username
-    );
-    AclAlias::delete_by_kind(&appstate.pool, id, AliasKind::Destination)
-        .await
-        .map_err(|err| {
-            error!("Error deleting ACL destination {id}: {err}");
-            err
-        })?;
-    info!(
-        "User {} deleted ACL destination {id}",
-        session.user.username
-    );
+    AclAlias::delete_by_kind(&appstate.pool, id, AliasKind::Destination).await?;
+    info!("User {} deleted ACL destination {id}", session.user.username);
     Ok(ApiResponse::default())
 }
 
-/// Apply ACL destinations
-#[utoipa::path(
-    put,
-    path = "/api/v1/acl/destination/apply",
-    tag = "ACL",
-    request_body = ApplyAclDestinationsData,
-    responses(
-        (status = 200, description = "Pending destination changes applied."),
-        (status = 400, description = "ACL destination is already applied.", body = ApiErrorResponse, example = json!({"msg": "Destination 1 already applied"})),
-        (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
-        (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
-        (status = 404, description = "ACL destination not found.", body = ApiErrorResponse, example = json!({"msg": "Destination 1 not found"})),
-        (status = 500, description = "Unable to apply ACL destinations.", body = ApiErrorResponse, example = json!({"msg": "Internal server error"})),
-    ),
-    security(
-        ("cookie" = []),
-        ("api_token" = [])
-    )
-)]
+#[utoipa::path(put, path = "/api/v1/acl/destination/apply", tag = "ACL", request_body = ApplyAclDestinationsData, responses((status = 200)))]
 pub(crate) async fn apply_acl_destinations(
     _license: LicenseInfo,
     _admin: AdminRole,
@@ -505,10 +297,11 @@ pub(crate) async fn apply_acl_destinations(
     session: SessionInfo,
     Json(data): Json<ApplyAclDestinationsData>,
 ) -> ApiResult {
-    debug!(
-        "User {} applying ACL destinations: {:?}",
-        session.user.username, data.destinations
-    );
+    if data.destinations.is_empty() {
+        return Err(WebError::BadRequest(
+            "Must provide at least one ACL destination to apply".to_owned(),
+        ));
+    }
 
     AclAlias::apply_by_kind(
         &data.destinations,
@@ -517,14 +310,6 @@ pub(crate) async fn apply_acl_destinations(
         &appstate.pool,
         &appstate.gateway_tx,
     )
-    .await
-    .map_err(|err| {
-        error!("Error applying ACL destinations {data:?}: {err}");
-        err
-    })?;
-    info!(
-        "User {} applied ACL destinations: {:?}",
-        session.user.username, data.destinations
-    );
+    .await?;
     Ok(ApiResponse::default())
 }
