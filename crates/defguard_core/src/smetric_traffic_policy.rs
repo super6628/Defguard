@@ -3,7 +3,9 @@
 //! This module defines the server/client contract without depending on inherited enterprise
 //! traffic-policy code. Persistence and HTTP wiring are layered on top separately.
 
+#[path = "smetric_traffic_policy/api.rs"]
 pub mod api;
+#[path = "smetric_traffic_policy/service.rs"]
 pub mod service;
 
 use std::net::IpAddr;
