@@ -232,8 +232,8 @@ pub async fn publish_policy(
 
 /// Resolve the published policy the client should apply for a device at a VPN location.
 ///
-/// Draft edits never affect this result. The current policy row only gates enabled/disabled state;
-/// matching, priority, mode and destinations all come from the last immutable published snapshot.
+/// Draft edits never affect this result. The current policy row gates enabled/disabled state;
+/// matching, priority, mode and destinations come from the last immutable published snapshot.
 pub async fn effective_for_device(
     pool: &PgPool,
     device_id: i64,
@@ -258,7 +258,10 @@ pub async fn effective_for_device(
 
     let mut published = Vec::new();
     for policy_id in enabled_ids {
-        if let Some(policy) = load_latest_published_policy(pool, policy_id).await? {
+        if let Some(mut policy) = load_latest_published_policy(pool, policy_id).await? {
+            // Enable/disable is operational state, not immutable policy content. A policy may have
+            // been published while disabled and later enabled without republishing the same rules.
+            policy.enabled = true;
             published.push(policy);
         }
     }
