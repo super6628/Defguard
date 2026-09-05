@@ -269,6 +269,7 @@ const FormContent = ({
                 <Button
                   variant="secondary"
                   text={m.controls_cancel()}
+                  disabled={isSubmitting}
                   onClick={() => {
                     void onReturnToAliases();
                   }}
@@ -282,7 +283,7 @@ const FormContent = ({
                           isEdit ? m.controls_save_changes() : m.acl_alias_action_add()
                         }
                         loading={isSubmitting}
-                        disabled={isEmpty}
+                        disabled={isEmpty || isSubmitting}
                       />
                     </div>
                   </TooltipTrigger>
