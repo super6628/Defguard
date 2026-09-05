@@ -48,7 +48,7 @@ export const brandingDefaults: BrandingConfig = {
   copyrightName: 'S-Metric',
   supportEmail: '',
   supportUrl: '',
-  documentationUrl: 'https://docs.defguard.net/',
+  documentationUrl: '',
   logoUrl: '',
   navLogoUrl: '',
   logoDarkUrl: '',
