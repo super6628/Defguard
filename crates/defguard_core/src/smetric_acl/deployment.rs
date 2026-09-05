@@ -66,7 +66,8 @@ pub async fn mark_applied(
     let result = sqlx::query(
         "UPDATE smetric_acl_deployment_state SET \
            applied_generation=$3, applied_at=NOW(), last_error=NULL, last_error_at=NULL, updated_at=NOW() \
-         WHERE policy_id=$1 AND location_id=$2 AND desired_generation=$3",
+         WHERE policy_id=$1 AND location_id=$2 AND desired_generation=$3 \
+           AND (applied_generation IS DISTINCT FROM $3 OR last_error IS NOT NULL)",
     )
     .bind(policy_id)
     .bind(location_id)
@@ -85,7 +86,8 @@ pub async fn mark_error(
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
         "UPDATE smetric_acl_deployment_state SET last_error=$4, last_error_at=NOW(), updated_at=NOW() \
-         WHERE policy_id=$1 AND location_id=$2 AND desired_generation=$3",
+         WHERE policy_id=$1 AND location_id=$2 AND desired_generation=$3 \
+           AND applied_generation IS DISTINCT FROM $3",
     )
     .bind(policy_id)
     .bind(location_id)
@@ -110,10 +112,10 @@ pub async fn list_for_policy(
     Ok(rows
         .into_iter()
         .map(|row| {
-            let status = if row.6.is_some() {
-                DeploymentStatus::Failed
-            } else if row.5 == Some(row.2) {
+            let status = if row.5 == Some(row.2) {
                 DeploymentStatus::Applied
+            } else if row.6.is_some() {
+                DeploymentStatus::Failed
             } else {
                 DeploymentStatus::Pending
             };
