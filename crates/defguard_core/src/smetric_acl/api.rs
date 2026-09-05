@@ -5,6 +5,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get as route_get, post},
 };
+use defguard_common::gateway_event::GatewayCommand;
 use serde::Serialize;
 
 use crate::{
@@ -12,7 +13,9 @@ use crate::{
 };
 
 use super::deployment::{DeploymentState, list_for_policy};
-use super::gateway::{GatewayEnforcementError, prepare_deployments};
+use super::gateway::GatewayEnforcementError;
+use super::location_deployment::ensure_desired as ensure_location_desired;
+use super::location_effective::compile_location_firewall;
 use super::service::{
     CreatePolicy, CreateRule, PolicySummary, PublishedPolicy, ServiceError, add_rule,
     create_policy, delete_policy, list_policies, load_policy, publish_policy, validate_policy,
@@ -141,7 +144,6 @@ pub async fn deployment_status(
     State(state): State<AppState>,
     Path(policy_id): Path<i64>,
 ) -> Result<Json<Vec<DeploymentState>>, Response> {
-    // Distinguish a missing policy from a valid policy that has never been deployed.
     load_policy(&state.pool, policy_id)
         .await
         .map_err(|error| ApiError(error).into_response())?;
@@ -156,15 +158,37 @@ pub async fn publish(
     State(state): State<AppState>,
     Path(policy_id): Path<i64>,
 ) -> Result<Json<PublishedPolicy>, Response> {
-    let deployments = prepare_deployments(&state.pool, policy_id)
-        .await
-        .map_err(gateway_error_response)?;
+    // Validate and persist the policy revision first so the location compiler sees this revision as
+    // published when it builds the authoritative effective location firewall.
     let published = publish_policy(&state.pool, policy_id)
         .await
         .map_err(|error| ApiError(error).into_response())?;
 
-    for deployment in deployments {
-        state.send_gateway_command(deployment.command);
+    let location_ids = sqlx::query_scalar::<_, i64>(
+        "SELECT location_id FROM smetric_acl_policy_assignment \
+         WHERE policy_id=$1 AND enabled=TRUE ORDER BY location_id",
+    )
+    .bind(policy_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|error| ApiError(ServiceError::Database(error)).into_response())?;
+
+    for location_id in location_ids {
+        let effective = compile_location_firewall(&state.pool, location_id)
+            .await
+            .map_err(gateway_error_response)?;
+        if effective.policy_ids.is_empty() {
+            continue;
+        }
+
+        ensure_location_desired(&state.pool, location_id, &effective.checksum)
+            .await
+            .map_err(|error| ApiError(ServiceError::Database(error)).into_response())?;
+
+        state.send_gateway_command(GatewayCommand::FirewallConfigChanged(
+            location_id,
+            effective.config,
+        ));
     }
 
     notify_config_changed(format!(
