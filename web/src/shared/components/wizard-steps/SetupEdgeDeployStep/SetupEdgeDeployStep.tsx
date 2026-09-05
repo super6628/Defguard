@@ -1,6 +1,7 @@
 import './style.scss';
 import { type ReactNode, useMemo, useState } from 'react';
 import { m } from '../../../../paraglide/messages';
+import { branding } from '../../../branding/branding';
 import { AppText } from '../../../defguard-ui/components/AppText/AppText';
 import { Button } from '../../../defguard-ui/components/Button/Button';
 import { Checkbox } from '../../../defguard-ui/components/Checkbox/Checkbox';
@@ -136,7 +137,7 @@ const DockerComposeTab = () => {
       - "8080:8080"
       - "50051:50051"
       - "443:443"
-    # Uncomment if you'd like Defguard to provision a certificate using Let's Encrypt.
+    # Uncomment if you'd like ${branding.productName} to provision a certificate using Let's Encrypt.
     #  - "80:80"
     # Uncomment the following if you are running on Debian 13 or later or have apparmor or SELinux setup
     #security_opt:
@@ -173,17 +174,17 @@ const PackageTab = () => {
     <>
       <TabContentHeader
         title={m.edge_setup_step_deploy_tabs_package_title()}
-        subtitle={m.edge_setup_step_deploy_tabs_package_subtitle()}
+        subtitle={`To add the package repository used by ${branding.productName} and install the Edge package, run the following commands:`}
       />
       <CodeSnippet
         value={`sudo apt update
 sudo apt install -y ca-certificates curl
-#Add official Defguard public GPG key
+# Add package repository signing key
 sudo install -m 0755 -d /etc/apt/keyrings
 sudo curl -fsSL https://apt.defguard.net/defguard.asc -o /etc/apt/keyrings/defguard.asc
 sudo chmod a+r /etc/apt/keyrings/defguard.asc
 
-#Add APT repository
+# Add APT repository
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/defguard.asc] https://apt.defguard.net/ trixie release-2.0 " | \
    sudo tee /etc/apt/sources.list.d/defguard.list > /dev/null
 
