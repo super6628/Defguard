@@ -40,3 +40,22 @@ export const brandConfig: BrandConfig = {
   supportTicketUrl: readEnv('VITE_BRAND_SUPPORT_TICKET_URL'),
   scheduleCallUrl: readEnv('VITE_BRAND_SCHEDULE_CALL_URL'),
 };
+
+/**
+ * Mapping for customer-visible legacy terminology.
+ *
+ * Keep protocol names, package names, API fields, environment variables,
+ * database identifiers and compatibility strings unchanged. This mapping is
+ * only for text presented to users in the web application.
+ */
+export const brandTerminology = {
+  Defguard: brandConfig.productName,
+  'Defguard instance': `${brandConfig.productName} instance`,
+  'Defguard Core': `${brandConfig.productName} Core`,
+  "Defguard's internal CA": `${brandConfig.productName}'s internal CA`,
+  'Defguard internal CA': `${brandConfig.productName} internal CA`,
+} as const;
+
+export type LegacyBrandTerm = keyof typeof brandTerminology;
+
+export const mapCustomerFacingBrandTerm = (term: LegacyBrandTerm): string => brandTerminology[term];
