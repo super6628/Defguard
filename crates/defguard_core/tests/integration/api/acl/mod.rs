@@ -55,7 +55,7 @@ async fn make_client_v2(pool: PgPool, config: DefGuardConfig) -> TestClient {
 fn make_rule() -> EditAclRule {
     EditAclRule {
         name: "rule".to_owned(),
-        all_locations: false,
+        all_locations: true,
         locations: Vec::new(),
         expires: None,
         allow_all_users: false,
