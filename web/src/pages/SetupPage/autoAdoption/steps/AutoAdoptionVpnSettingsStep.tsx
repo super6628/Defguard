@@ -3,6 +3,7 @@ import z from 'zod';
 import { useShallow } from 'zustand/react/shallow';
 import { m } from '../../../../paraglide/messages';
 import api from '../../../../shared/api/api';
+import { branding } from '../../../../shared/branding/branding';
 import { Controls } from '../../../../shared/components/Controls/Controls';
 import { WizardCard } from '../../../../shared/components/wizard/WizardCard/WizardCard';
 import { Button } from '../../../../shared/defguard-ui/components/Button/Button';
@@ -135,7 +136,10 @@ export const AutoAdoptionVpnSettingsStep = () => {
         }}
       >
         <form.AppForm>
-          <p>{m.initial_setup_auto_adoption_vpn_intro()}</p>
+          <p>
+            To make the VPN operational, configure the public IP or domain and WireGuard UDP port.
+            If the gateway is behind a firewall or router, forward that port to the gateway host.
+          </p>
           <SizedBox height={ThemeSpacing.Lg} />
           <div className="vpn-top-row">
             <form.AppField name="vpn_public_ip">
@@ -143,7 +147,7 @@ export const AutoAdoptionVpnSettingsStep = () => {
                 <field.FormInput
                   required
                   label={m.initial_setup_auto_adoption_vpn_label_public_ip()}
-                  helper={m.initial_setup_auto_adoption_vpn_helper_public_ip()}
+                  helper={`Clients use this public address to connect to the VPN. It does not need to be assigned directly to the host running ${branding.productName}.`}
                 />
               )}
             </form.AppField>
@@ -152,7 +156,7 @@ export const AutoAdoptionVpnSettingsStep = () => {
                 <field.FormInput
                   required
                   label={m.initial_setup_auto_adoption_vpn_label_wireguard_port()}
-                  helper={m.initial_setup_auto_adoption_vpn_helper_wireguard_port()}
+                  helper="The VPN Gateway listens on this UDP port. If the gateway host is not directly public, forward this port from your public IP to the gateway host."
                   type="number"
                 />
               )}
