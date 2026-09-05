@@ -142,19 +142,51 @@ pub async fn record_desired(
     Ok(generation)
 }
 
-/// Return the current desired generation when the effective checksum is unchanged. Allocate a new
-/// generation only when the desired effective location firewall actually changes.
+/// Atomically preserve the current desired generation when the checksum is unchanged, or allocate
+/// a new generation when the effective location firewall changes. The single upsert removes the
+/// read-then-write race between concurrent publishers for the same location.
 pub async fn ensure_desired(
     pool: &PgPool,
     location_id: i64,
     checksum: &str,
 ) -> Result<i64, sqlx::Error> {
-    if let Some(state) = get(pool, location_id).await? {
-        if state.desired_checksum == checksum {
-            return Ok(state.desired_generation);
-        }
-    }
-    record_desired(pool, location_id, checksum).await
+    sqlx::query_scalar::<_, i64>(
+        "INSERT INTO smetric_acl_location_deployment_state \
+         (location_id, desired_generation, desired_checksum, desired_at, last_error, last_error_at, updated_at) \
+         VALUES ($1, nextval('smetric_acl_location_deployment_generation_seq')::bigint, $2, NOW(), NULL, NULL, NOW()) \
+         ON CONFLICT (location_id) DO UPDATE SET \
+           desired_generation = CASE \
+             WHEN smetric_acl_location_deployment_state.desired_checksum = EXCLUDED.desired_checksum \
+             THEN smetric_acl_location_deployment_state.desired_generation \
+             ELSE nextval('smetric_acl_location_deployment_generation_seq')::bigint \
+           END, \
+           desired_checksum = EXCLUDED.desired_checksum, \
+           desired_at = CASE \
+             WHEN smetric_acl_location_deployment_state.desired_checksum = EXCLUDED.desired_checksum \
+             THEN smetric_acl_location_deployment_state.desired_at \
+             ELSE NOW() \
+           END, \
+           last_error = CASE \
+             WHEN smetric_acl_location_deployment_state.desired_checksum = EXCLUDED.desired_checksum \
+             THEN smetric_acl_location_deployment_state.last_error \
+             ELSE NULL \
+           END, \
+           last_error_at = CASE \
+             WHEN smetric_acl_location_deployment_state.desired_checksum = EXCLUDED.desired_checksum \
+             THEN smetric_acl_location_deployment_state.last_error_at \
+             ELSE NULL \
+           END, \
+           updated_at = CASE \
+             WHEN smetric_acl_location_deployment_state.desired_checksum = EXCLUDED.desired_checksum \
+             THEN smetric_acl_location_deployment_state.updated_at \
+             ELSE NOW() \
+           END \
+         RETURNING desired_generation",
+    )
+    .bind(location_id)
+    .bind(checksum)
+    .fetch_one(pool)
+    .await
 }
 
 pub async fn mark_applied(
