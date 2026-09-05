@@ -137,6 +137,12 @@ pub struct EditAclRule {
 
 impl EditAclRule {
     pub async fn validate(&self, conn: &mut PgConnection) -> Result<(), WebError> {
+        if !self.all_locations && self.locations.is_empty() {
+            return Err(WebError::BadRequest(
+                "Must provide at least one location when all locations are disabled".to_owned(),
+            ));
+        }
+
         if self.use_manual_destination_settings {
             // Determine what the selected component aliases collectively contribute.
             // Note: Component-kind aliases always have any_address/any_port/any_protocol = false,
