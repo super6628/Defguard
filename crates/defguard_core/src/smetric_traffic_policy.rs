@@ -3,6 +3,8 @@
 //! This module defines the server/client contract without depending on inherited enterprise
 //! traffic-policy code. Persistence and HTTP wiring are layered on top separately.
 
+pub mod service;
+
 use std::net::IpAddr;
 
 use ipnetwork::IpNetwork;
