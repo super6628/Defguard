@@ -42,8 +42,10 @@ export const DeleteAliasDestinationConfirmModal = () => {
 
   useEffect(() => {
     const openSub = subscribeOpenModal(modalNameValue, (data) => {
-      setModalData(data);
-      setOpen(true);
+      if (!isPending) {
+        setModalData(data);
+        setOpen(true);
+      }
     });
     const closeSub = subscribeCloseModal(modalNameValue, () => {
       if (!isPending) {
