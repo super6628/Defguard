@@ -23,14 +23,34 @@ pub struct EffectiveLocationFirewall {
     pub config: FirewallConfig,
 }
 
+pub async fn compile_location_firewall(
+    pool: &PgPool,
+    location_id: i64,
+) -> Result<EffectiveLocationFirewall, GatewayEnforcementError> {
+    compile_location_firewall_excluding(pool, location_id, None).await
+}
+
+/// Compile the effective location firewall while excluding one policy from consideration.
+///
+/// This is used by destructive policy operations so the post-delete gateway configuration can be
+/// validated before the policy row and its assignments are removed from the database.
+pub async fn compile_location_firewall_without_policy(
+    pool: &PgPool,
+    location_id: i64,
+    excluded_policy_id: i64,
+) -> Result<EffectiveLocationFirewall, GatewayEnforcementError> {
+    compile_location_firewall_excluding(pool, location_id, Some(excluded_policy_id)).await
+}
+
 /// Compile one authoritative firewall configuration for a VPN location.
 ///
 /// Policies are ordered by policy id for now. Rules retain each policy's compiled rule ordering.
 /// A future explicit policy-priority field can replace policy-id ordering without changing this
 /// aggregation boundary.
-pub async fn compile_location_firewall(
+async fn compile_location_firewall_excluding(
     pool: &PgPool,
     location_id: i64,
+    excluded_policy_id: Option<i64>,
 ) -> Result<EffectiveLocationFirewall, GatewayEnforcementError> {
     let policy_ids = sqlx::query_scalar::<_, i64>(
         "SELECT p.id \
@@ -39,6 +59,7 @@ pub async fn compile_location_firewall(
          WHERE a.location_id = $1 \
            AND a.enabled = TRUE \
            AND p.enabled = TRUE \
+           AND ($2::bigint IS NULL OR p.id <> $2) \
            AND EXISTS ( \
                SELECT 1 FROM smetric_acl_revision rev \
                WHERE rev.policy_id = p.id AND rev.revision = p.revision \
@@ -46,6 +67,7 @@ pub async fn compile_location_firewall(
          ORDER BY p.id",
     )
     .bind(location_id)
+    .bind(excluded_policy_id)
     .fetch_all(pool)
     .await?;
 
@@ -57,8 +79,6 @@ pub async fn compile_location_firewall(
     for policy_id in &policy_ids {
         let policy = compile(load_policy(pool, *policy_id).await?).map_err(ServiceError::Validation)?;
         if matches!(policy.default_action, DefaultAction::Deny) {
-            // Conservative aggregate semantics: if any active policy requires a deny-by-default
-            // posture, the location's effective default is deny.
             default_policy = FirewallPolicy::Deny;
         }
         policy_revisions.push((*policy_id, policy.revision));
@@ -70,9 +90,6 @@ pub async fn compile_location_firewall(
         }
     }
 
-    // SNAT belongs to the location rather than to an individual ACL policy. It must therefore be
-    // present even when the last S-Metric ACL policy disappears: the resulting empty/ALLOW config
-    // is the authoritative replacement that clears stale ACL rules without clearing SNAT.
     let snat_bindings = match snat_bindings {
         Some(bindings) => bindings,
         None => resolve_snat_bindings(pool, location_id).await?,
