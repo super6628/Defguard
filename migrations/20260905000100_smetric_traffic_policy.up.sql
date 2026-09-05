@@ -28,6 +28,11 @@ CREATE TABLE smetric_traffic_policy_target (
     UNIQUE(policy_id, target_kind, target_value)
 );
 
+-- PostgreSQL UNIQUE treats NULLs as distinct; enforce one global target per policy explicitly.
+CREATE UNIQUE INDEX smetric_traffic_policy_single_global_target_idx
+    ON smetric_traffic_policy_target(policy_id)
+    WHERE target_kind = 'global';
+
 CREATE TABLE smetric_traffic_policy_destination (
     id BIGSERIAL PRIMARY KEY,
     policy_id BIGINT NOT NULL REFERENCES smetric_traffic_policy(id) ON DELETE CASCADE,
@@ -43,6 +48,7 @@ CREATE TABLE smetric_traffic_policy_revision (
     policy_id BIGINT NOT NULL REFERENCES smetric_traffic_policy(id) ON DELETE CASCADE,
     revision BIGINT NOT NULL CHECK (revision > 0),
     checksum TEXT NOT NULL,
+    policy_snapshot JSONB NOT NULL,
     compiled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(policy_id, revision)
 );
@@ -50,3 +56,4 @@ CREATE TABLE smetric_traffic_policy_revision (
 CREATE INDEX smetric_traffic_policy_priority_idx ON smetric_traffic_policy(enabled, priority, id);
 CREATE INDEX smetric_traffic_policy_target_lookup_idx ON smetric_traffic_policy_target(target_kind, target_value);
 CREATE INDEX smetric_traffic_policy_destination_policy_idx ON smetric_traffic_policy_destination(policy_id);
+CREATE INDEX smetric_traffic_policy_revision_latest_idx ON smetric_traffic_policy_revision(policy_id, revision DESC);
