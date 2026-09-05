@@ -12,9 +12,11 @@ use crate::{
     appstate::AppState, auth::AdminRole, grpc::smetric_config_sync::notify_config_changed,
 };
 
-use super::deployment::{DeploymentState, list_for_policy};
 use super::gateway::GatewayEnforcementError;
-use super::location_deployment::ensure_desired as ensure_location_desired;
+use super::location_deployment::{
+    PolicyLocationDeploymentStatus, ensure_desired as ensure_location_desired,
+    list_for_policy as list_location_deployments_for_policy,
+};
 use super::location_effective::compile_location_firewall;
 use super::service::{
     CreatePolicy, CreateRule, PolicySummary, PublishedPolicy, ServiceError, add_rule,
@@ -143,11 +145,11 @@ pub async fn deployment_status(
     _admin: AdminRole,
     State(state): State<AppState>,
     Path(policy_id): Path<i64>,
-) -> Result<Json<Vec<DeploymentState>>, Response> {
+) -> Result<Json<Vec<PolicyLocationDeploymentStatus>>, Response> {
     load_policy(&state.pool, policy_id)
         .await
         .map_err(|error| ApiError(error).into_response())?;
-    let deployments = list_for_policy(&state.pool, policy_id)
+    let deployments = list_location_deployments_for_policy(&state.pool, policy_id)
         .await
         .map_err(|error| ApiError(ServiceError::Database(error)).into_response())?;
     Ok(Json(deployments))
