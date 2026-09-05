@@ -34,6 +34,11 @@ pub struct EditAclDestination {
 
 impl EditAclDestination {
     fn validate(&self) -> Result<(), WebError> {
+        if self.name.trim().is_empty() {
+            return Err(WebError::BadRequest(
+                "Destination name cannot be empty".to_owned(),
+            ));
+        }
         if !self.any_address && self.addresses.trim().is_empty() {
             return Err(WebError::BadRequest(
                 "Must provide destination addresses or enable any address".to_owned(),
