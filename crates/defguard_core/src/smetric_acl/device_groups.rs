@@ -14,6 +14,8 @@ use crate::{
     grpc::smetric_config_sync::notify_config_changed,
 };
 
+use super::gateway::{GatewayEnforcementError, prepare_deployments};
+
 #[derive(Clone, Debug, Serialize)]
 pub struct DeviceGroup {
     pub id: i64,
@@ -53,6 +55,8 @@ pub struct AddDeviceGroupMember {
 pub enum DeviceGroupError {
     #[error(transparent)]
     Database(#[from] sqlx::Error),
+    #[error(transparent)]
+    Gateway(#[from] GatewayEnforcementError),
     #[error("device group name cannot be empty")]
     EmptyName,
     #[error("S-Metric ACL device group {0} was not found")]
@@ -61,6 +65,8 @@ pub enum DeviceGroupError {
     DeviceNotFound(i64),
     #[error("a device group named '{0}' already exists")]
     DuplicateName(String),
+    #[error("device group '{0}' is referenced by one or more ACL rules")]
+    GroupInUse(String),
 }
 
 fn default_enabled() -> bool {
@@ -86,8 +92,13 @@ impl IntoResponse for DeviceGroupError {
         let status = match &self {
             Self::EmptyName => StatusCode::BAD_REQUEST,
             Self::GroupNotFound(_) | Self::DeviceNotFound(_) => StatusCode::NOT_FOUND,
-            Self::DuplicateName(_) => StatusCode::CONFLICT,
-            Self::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::DuplicateName(_) | Self::GroupInUse(_) => StatusCode::CONFLICT,
+            Self::Gateway(GatewayEnforcementError::Database(_))
+            | Self::Gateway(GatewayEnforcementError::Service(
+                super::service::ServiceError::Database(_),
+            ))
+            | Self::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::Gateway(_) => StatusCode::BAD_REQUEST,
         };
         (status, Json(serde_json::json!({ "error": self.to_string() }))).into_response()
     }
@@ -157,7 +168,13 @@ pub async fn update(
     Path(group_id): Path<i64>,
     Json(input): Json<UpdateDeviceGroup>,
 ) -> Result<Json<DeviceGroup>, DeviceGroupError> {
+    let old = load_group(&state.pool, group_id).await?;
     let name = normalized_name(&input.name)?;
+
+    if old.name != name && group_is_referenced(&state.pool, &old.name).await? {
+        return Err(DeviceGroupError::GroupInUse(old.name));
+    }
+
     let row = sqlx::query_as::<_, (i64, String, Option<String>, bool)>(
         "UPDATE smetric_acl_device_group SET name=$2, description=$3, enabled=$4, updated_at=NOW() WHERE id=$1 RETURNING id,name,description,enabled",
     )
@@ -169,6 +186,14 @@ pub async fn update(
     .await
     .map_err(|error| map_write_error(error, &name))?
     .ok_or(DeviceGroupError::GroupNotFound(group_id))?;
+
+    if old.enabled != row.3 {
+        if let Err(error) = redeploy_published_policies_for_group(&state, &row.1).await {
+            restore_group(&state.pool, &old).await?;
+            return Err(error);
+        }
+    }
+
     notify_config_changed(format!("smetric_acl:device_group:{group_id}:updated"));
     Ok(Json(DeviceGroup {
         id: row.0,
@@ -184,6 +209,11 @@ pub async fn remove(
     State(state): State<AppState>,
     Path(group_id): Path<i64>,
 ) -> Result<StatusCode, DeviceGroupError> {
+    let group = load_group(&state.pool, group_id).await?;
+    if group_is_referenced(&state.pool, &group.name).await? {
+        return Err(DeviceGroupError::GroupInUse(group.name));
+    }
+
     let result = sqlx::query("DELETE FROM smetric_acl_device_group WHERE id=$1")
         .bind(group_id)
         .execute(&state.pool)
@@ -201,20 +231,37 @@ pub async fn add_member(
     Path(group_id): Path<i64>,
     Json(input): Json<AddDeviceGroupMember>,
 ) -> Result<(StatusCode, Json<DeviceGroup>), DeviceGroupError> {
-    ensure_group(&state.pool, group_id).await?;
+    let group = load_group(&state.pool, group_id).await?;
     ensure_device(&state.pool, input.device_id).await?;
-    sqlx::query(
+    let result = sqlx::query(
         "INSERT INTO smetric_acl_device_group_member (group_id, device_id) VALUES ($1,$2) ON CONFLICT (group_id, device_id) DO NOTHING",
     )
     .bind(group_id)
     .bind(input.device_id)
     .execute(&state.pool)
     .await?;
-    notify_config_changed(format!(
-        "smetric_acl:device_group:{group_id}:member:{}:added",
-        input.device_id
-    ));
-    Ok((StatusCode::CREATED, Json(load_group(&state.pool, group_id).await?)))
+
+    if result.rows_affected() > 0 {
+        if let Err(error) = redeploy_published_policies_for_group(&state, &group.name).await {
+            sqlx::query(
+                "DELETE FROM smetric_acl_device_group_member WHERE group_id=$1 AND device_id=$2",
+            )
+            .bind(group_id)
+            .bind(input.device_id)
+            .execute(&state.pool)
+            .await?;
+            return Err(error);
+        }
+        notify_config_changed(format!(
+            "smetric_acl:device_group:{group_id}:member:{}:added",
+            input.device_id
+        ));
+    }
+
+    Ok((
+        StatusCode::CREATED,
+        Json(load_group(&state.pool, group_id).await?),
+    ))
 }
 
 pub async fn remove_member(
@@ -222,7 +269,7 @@ pub async fn remove_member(
     State(state): State<AppState>,
     Path((group_id, device_id)): Path<(i64, i64)>,
 ) -> Result<StatusCode, DeviceGroupError> {
-    ensure_group(&state.pool, group_id).await?;
+    let group = load_group(&state.pool, group_id).await?;
     let result = sqlx::query(
         "DELETE FROM smetric_acl_device_group_member WHERE group_id=$1 AND device_id=$2",
     )
@@ -233,10 +280,88 @@ pub async fn remove_member(
     if result.rows_affected() == 0 {
         return Err(DeviceGroupError::DeviceNotFound(device_id));
     }
+
+    if let Err(error) = redeploy_published_policies_for_group(&state, &group.name).await {
+        sqlx::query(
+            "INSERT INTO smetric_acl_device_group_member (group_id, device_id) VALUES ($1,$2) ON CONFLICT (group_id, device_id) DO NOTHING",
+        )
+        .bind(group_id)
+        .bind(device_id)
+        .execute(&state.pool)
+        .await?;
+        return Err(error);
+    }
+
     notify_config_changed(format!(
         "smetric_acl:device_group:{group_id}:member:{device_id}:removed"
     ));
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn redeploy_published_policies_for_group(
+    state: &AppState,
+    group_name: &str,
+) -> Result<(), DeviceGroupError> {
+    let policy_ids = published_policy_ids_for_group(&state.pool, group_name).await?;
+    let mut commands = Vec::new();
+
+    for policy_id in policy_ids {
+        let deployments = prepare_deployments(&state.pool, policy_id).await?;
+        commands.extend(deployments.into_iter().map(|deployment| deployment.command));
+    }
+
+    if !commands.is_empty() {
+        state.send_multiple_gateway_commands(commands);
+    }
+    Ok(())
+}
+
+async fn published_policy_ids_for_group(
+    pool: &PgPool,
+    group_name: &str,
+) -> Result<Vec<i64>, sqlx::Error> {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT DISTINCT p.id \
+         FROM smetric_acl_policy p \
+         JOIN smetric_acl_rule r ON r.policy_id = p.id \
+         WHERE p.enabled = TRUE \
+           AND r.enabled = TRUE \
+           AND r.source_kind = 'device_group' \
+           AND r.source_value = $1 \
+           AND EXISTS ( \
+               SELECT 1 FROM smetric_acl_revision rev \
+               WHERE rev.policy_id = p.id AND rev.revision = p.revision \
+           ) \
+         ORDER BY p.id",
+    )
+    .bind(group_name)
+    .fetch_all(pool)
+    .await
+}
+
+async fn group_is_referenced(pool: &PgPool, group_name: &str) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS( \
+             SELECT 1 FROM smetric_acl_rule \
+             WHERE source_kind = 'device_group' AND source_value = $1 \
+         )",
+    )
+    .bind(group_name)
+    .fetch_one(pool)
+    .await
+}
+
+async fn restore_group(pool: &PgPool, group: &DeviceGroup) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE smetric_acl_device_group SET name=$2, description=$3, enabled=$4, updated_at=NOW() WHERE id=$1",
+    )
+    .bind(group.id)
+    .bind(&group.name)
+    .bind(&group.description)
+    .bind(group.enabled)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 async fn load_group(pool: &PgPool, group_id: i64) -> Result<DeviceGroup, DeviceGroupError> {
@@ -273,20 +398,6 @@ async fn load_members(
             device_name,
         })
         .collect())
-}
-
-async fn ensure_group(pool: &PgPool, group_id: i64) -> Result<(), DeviceGroupError> {
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM smetric_acl_device_group WHERE id=$1)",
-    )
-    .bind(group_id)
-    .fetch_one(pool)
-    .await?;
-    if exists {
-        Ok(())
-    } else {
-        Err(DeviceGroupError::GroupNotFound(group_id))
-    }
 }
 
 async fn ensure_device(pool: &PgPool, device_id: i64) -> Result<(), DeviceGroupError> {
