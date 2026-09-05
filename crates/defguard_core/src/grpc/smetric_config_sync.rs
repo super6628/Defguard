@@ -18,6 +18,13 @@ use tonic::{Request, Response, Status};
 
 const EVENT_BUFFER: usize = 256;
 
+fn process_epoch_version() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis().min(u64::MAX as u128) as u64)
+        .unwrap_or_default()
+}
+
 #[derive(Clone, Debug)]
 pub struct ConfigSyncEvent {
     pub version: u64,
@@ -34,7 +41,10 @@ impl ConfigSyncHub {
     fn new() -> Self {
         let (tx, _) = broadcast::channel(EVENT_BUFFER);
         Self {
-            version: AtomicU64::new(0),
+            // Start from a process-epoch value instead of zero. Clients may reconnect after Core
+            // restarts carrying a version from the previous process; a time-based baseline avoids
+            // silently treating that stale version as newer than the freshly restarted Core.
+            version: AtomicU64::new(process_epoch_version()),
             tx,
         }
     }
@@ -117,7 +127,9 @@ impl ConfigSyncService for ConfigSyncServer {
     ) -> Result<Response<Self::SubscribeStream>, Status> {
         let last_applied = request.into_inner().last_applied_version;
         let desired = self.hub.desired_version();
-        let initial = (last_applied < desired).then_some(Ok(ConfigChanged {
+        // Reconcile on any mismatch, not only when the client reports a lower version. This also
+        // repairs clients reconnecting after a Core restart or clock/version discontinuity.
+        let initial = (last_applied != desired).then_some(Ok(ConfigChanged {
             version: desired,
             reason: "reconcile".to_owned(),
             changed_at_unix_ms: 0,
