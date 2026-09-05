@@ -45,6 +45,14 @@ mod generated {
             }
         }
     }
+
+    pub mod smetric {
+        pub mod config_sync {
+            pub mod v1 {
+                tonic::include_proto!("smetric.config_sync.v1");
+            }
+        }
+    }
 }
 
 pub mod proxy {
@@ -74,6 +82,12 @@ pub mod client_types {
 
 pub mod common {
     pub use crate::generated::defguard::common::v2::*;
+}
+
+pub mod smetric {
+    pub mod config_sync {
+        pub use crate::generated::smetric::config_sync::v1::*;
+    }
 }
 
 use client_types::MfaMethod;

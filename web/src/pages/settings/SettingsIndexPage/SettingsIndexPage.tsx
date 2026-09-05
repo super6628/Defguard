@@ -7,6 +7,7 @@ import { Tabs } from '../../../shared/defguard-ui/components/Tabs/Tabs';
 import type { TabProps } from '../../../shared/defguard-ui/components/Tabs/types';
 import { ThemeSpacing } from '../../../shared/defguard-ui/types';
 import { SettingsActivityLogStreamingPage } from '../SettingsActivityLogStreamingPage/SettingsActivityStreamingTab';
+import { SettingsBrandingTab } from './tabs/SettingsBrandingTab';
 import { SettingsCertificatesTab } from './tabs/SettingsCertificatesTab/SettingsCertificatesTab';
 import { SettingsExternalProvidersTab } from './tabs/SettingsExternalProvidersTab';
 import { SettingsGeneralTab } from './tabs/SettingsGeneralTab';
@@ -17,6 +18,7 @@ import { useCertificatesWarningState } from './useCertificatesWarningState';
 
 const tabComponent: Record<SettingsTabValue, JSX.Element> = {
   general: <SettingsGeneralTab />,
+  branding: <SettingsBrandingTab />,
   notifications: <SettingsNotificationsTab />,
   activity: <SettingsActivityLogStreamingPage />,
   license: <SettingsLicenseTab />,
@@ -28,6 +30,8 @@ const tabToTitle = (tab: SettingsTabValue): string => {
   switch (tab) {
     case 'general':
       return m.settings_tab_general();
+    case 'branding':
+      return 'Branding';
     case 'activity':
       return m.settings_tab_activity_streaming();
     case 'license':
@@ -59,12 +63,7 @@ export const SettingsIndexPage = () => {
           },
         }),
       ),
-    [
-      certificateWarningState.tabIcon,
-      certificateWarningState.tabIconColor,
-      navigateTab,
-      search.tab,
-    ],
+    [certificateWarningState.tabIcon, certificateWarningState.tabIconColor, navigateTab, search.tab],
   );
 
   return (

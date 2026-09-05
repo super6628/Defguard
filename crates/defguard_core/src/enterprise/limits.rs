@@ -96,26 +96,37 @@ impl Counts {
         }
     }
 
-    pub(crate) fn user(&self) -> u32 {
+    /// Compatibility count used by legacy license-enforcement call sites.
+    ///
+    /// S-Metric Secure does not enforce a licensed active-user ceiling. Returning zero here
+    /// keeps inherited user-enable checks non-blocking while preserving the real count in
+    /// `actual_user()` for reporting and diagnostics.
+    pub(crate) const fn user(&self) -> u32 {
+        0
+    }
+
+    /// Actual active-user count for reporting, diagnostics, and capacity monitoring.
+    pub(crate) const fn actual_user(&self) -> u32 {
         self.user
     }
 
-    pub(crate) fn user_device(&self) -> u32 {
+    pub(crate) const fn user_device(&self) -> u32 {
         self.user_device
     }
 
-    pub(crate) fn network_device(&self) -> u32 {
+    pub(crate) const fn network_device(&self) -> u32 {
         self.network_device
     }
 
-    pub(crate) fn location(&self) -> u32 {
+    pub(crate) const fn location(&self) -> u32 {
         self.location
     }
 
     pub(crate) fn is_over_license_limits(&self, license: &License) -> bool {
-        let limits = &license.limits;
-        match limits {
-            Some(limits) => self.user > limits.users || self.location > limits.locations,
+        match &license.limits {
+            // S-Metric Secure intentionally does not enforce the inherited user-count limit.
+            // Other resource limits remain available for compatibility.
+            Some(limits) => self.location > limits.locations,
             // unlimited license
             None => false,
         }
@@ -145,7 +156,10 @@ mod test {
 
         let counts = get_counts();
 
-        assert_eq!(counts.user, 1);
+        // Legacy enforcement-facing count is deliberately neutralized.
+        assert_eq!(counts.user(), 0);
+        // The real count remains available for reporting.
+        assert_eq!(counts.actual_user(), 1);
         assert_eq!(counts.user_device, 2);
         assert_eq!(counts.location, 3);
     }
@@ -177,20 +191,20 @@ mod test {
 
         set_cached_license(Some(license));
 
-        // User limit
+        // User count is intentionally not license-enforced in S-Metric Secure.
         {
             let counts = Counts {
-                user: users_limit + 1,
+                user: users_limit + 1000,
                 user_device: 1,
                 location: 1,
                 network_device: 1,
             };
             set_counts(counts);
             let counts = get_counts();
-            assert!(counts.is_over_limit());
+            assert!(!counts.is_over_limit());
         }
 
-        // Wireguard network limit
+        // Wireguard network/location limit remains enforced.
         {
             let counts = Counts {
                 user: 1,
@@ -203,10 +217,10 @@ mod test {
             assert!(counts.is_over_limit());
         }
 
-        // No limit
+        // No limit exceeded.
         {
             let counts = Counts {
-                user: users_limit,
+                user: users_limit + 1000,
                 user_device: devices_limit,
                 location: locations_limit,
                 network_device: network_devices_limit,
@@ -216,10 +230,11 @@ mod test {
             assert!(!counts.is_over_limit());
         }
 
-        // All limits
+        // Even with a very large user count, the remaining location limit is what determines
+        // whether the inherited resource-limit check fails.
         {
             let counts = Counts {
-                user: users_limit + 1,
+                user: u32::MAX,
                 user_device: devices_limit + 1,
                 location: locations_limit + 1,
                 network_device: network_devices_limit + 1,

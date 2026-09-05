@@ -124,7 +124,7 @@ tokio = { version = "1", features = [
     "sync",
     "time",
 ] }
-tokio-stream = "0.1"
+tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = "0.7"
 tonic = { version = "0.14", features = [
     "gzip",

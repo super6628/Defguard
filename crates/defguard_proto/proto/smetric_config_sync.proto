@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package smetric.config_sync.v1;
+
+service ConfigSyncService {
+  rpc Subscribe(SubscribeRequest) returns (stream ConfigChanged);
+  rpc GetVersion(GetVersionRequest) returns (ConfigVersion);
+  rpc Acknowledge(ConfigAck) returns (AckResponse);
+}
+
+message SubscribeRequest {
+  uint64 last_applied_version = 1;
+}
+
+message GetVersionRequest {}
+
+message ConfigVersion {
+  uint64 desired_version = 1;
+}
+
+message ConfigChanged {
+  uint64 version = 1;
+  string reason = 2;
+  int64 changed_at_unix_ms = 3;
+}
+
+message ConfigAck {
+  uint64 version = 1;
+  bool success = 2;
+  string error = 3;
+}
+
+message AckResponse {
+  bool accepted = 1;
+  uint64 desired_version = 2;
+}

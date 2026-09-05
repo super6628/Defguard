@@ -5,5 +5,6 @@ pub mod device_posture;
 pub mod enterprise_settings;
 pub mod group_client_traffic_policy;
 pub mod openid_provider;
+pub mod smetric_oidc_provider;
 pub mod snat;
 pub mod user_directory_identity;

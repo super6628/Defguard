@@ -32,12 +32,17 @@ use crate::{
         },
         has_enterprise_access, is_business_license_active,
     },
-    grpc::{interceptor::JwtInterceptor, worker::WorkerServer},
+    grpc::{
+        interceptor::JwtInterceptor,
+        smetric_config_sync::ConfigSyncServer,
+        worker::WorkerServer,
+    },
 };
 
 pub mod client_version;
 pub mod interceptor;
 pub mod proxy;
+pub mod smetric_config_sync;
 pub mod utils;
 pub mod worker;
 
@@ -49,7 +54,10 @@ pub mod proto {
     }
 }
 
-use defguard_proto::worker::worker_service_server::WorkerServiceServer;
+use defguard_proto::{
+    smetric::config_sync::config_sync_service_server::ConfigSyncServiceServer,
+    worker::worker_service_server::WorkerServiceServer,
+};
 use tonic::transport::{Identity, Server, ServerTlsConfig, server::Router};
 
 // gRPC header for passing auth token from clients
@@ -99,20 +107,25 @@ pub async fn build_grpc_service_router(
         WorkerServer::new(pool.clone(), worker_state),
         JwtInterceptor::new(ClaimsType::YubiBridge),
     );
+    let config_sync_service = ConfigSyncServiceServer::with_interceptor(
+        ConfigSyncServer::new(),
+        JwtInterceptor::new(ClaimsType::DesktopClient),
+    );
 
     let (health_reporter, health_service) = tonic_health::server::health_reporter();
     health_reporter
         .set_serving::<WorkerServiceServer<WorkerServer>>()
         .await;
     health_reporter
-        .set_serving::<WorkerServiceServer<WorkerServer>>()
+        .set_serving::<ConfigSyncServiceServer<ConfigSyncServer>>()
         .await;
 
     let router = server
         .http2_keepalive_interval(Some(TEN_SECS))
         .tcp_keepalive(Some(TEN_SECS))
         .add_service(health_service)
-        .add_service(worker_service);
+        .add_service(worker_service)
+        .add_service(config_sync_service);
 
     Ok(router)
 }

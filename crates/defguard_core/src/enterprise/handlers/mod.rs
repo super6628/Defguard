@@ -3,8 +3,45 @@ pub mod activity_log_stream;
 pub mod api_tokens;
 pub mod device_posture;
 pub mod enterprise_settings;
-pub mod openid_login;
-pub mod openid_providers;
+pub mod smetric_microsoft_oidc;
+
+// Keep the upstream modules compiled under compatibility names because internal
+// directory-sync, proxy-manager, setup, and desktop-MFA code still consumes helper
+// functions from them. The public compatibility modules below expose our independent
+// S-Metric login/provider handlers while forwarding non-router helpers to upstream.
+#[path = "openid_login.rs"]
+pub mod upstream_openid_login;
+#[path = "openid_providers.rs"]
+pub mod upstream_openid_providers;
+
+pub mod openid_login {
+    pub use super::smetric_microsoft_oidc::{auth_callback, get_auth_info};
+    pub use super::upstream_openid_login::{
+        SELECT_ACCOUNT_SUPPORTED_PROVIDERS, __path_auth_callback, __path_get_auth_info,
+        build_state, make_oidc_client, prune_username, user_from_claims,
+    };
+    pub(crate) use super::upstream_openid_login::extract_state_data;
+}
+
+pub mod openid_providers {
+    pub use super::smetric_microsoft_oidc::{
+        add_openid_provider, delete_openid_provider, get_current_openid_provider,
+        get_openid_provider, list_openid_providers, modify_openid_provider,
+        test_dirsync_connection,
+    };
+
+    // Preserve request DTO compatibility for existing integration tests and
+    // internal consumers while S-Metric uses its independent OIDC handlers.
+    pub use super::upstream_openid_providers::AddProviderData;
+
+    // Preserve generated OpenAPI path descriptors expected by openapi.rs.
+    pub use super::upstream_openid_providers::{
+        __path_add_openid_provider, __path_delete_openid_provider,
+        __path_get_current_openid_provider, __path_get_openid_provider,
+        __path_list_openid_providers, __path_modify_openid_provider,
+        __path_test_dirsync_connection,
+    };
+}
 
 use std::marker::PhantomData;
 
@@ -42,6 +79,8 @@ struct LimitInfo {
 
 #[derive(Serialize)]
 struct LicenseLimitsInfo {
+    // Retained for API compatibility. S-Metric Secure reports the real active-user count but
+    // exposes no licensed user ceiling; `limit` is u32::MAX rather than an enforcement value.
     users: LimitInfo,
     locations: LimitInfo,
     user_devices: Option<LimitInfo>,
@@ -113,7 +152,7 @@ where
                 "tier": "Enterprise",
                 "support_type": "DirectEnterprise",
                 "limits": {
-                    "users": {"current": 12, "limit": 100},
+                    "users": {"current": 12, "limit": 4294967295u32},
                     "locations": {"current": 2, "limit": 10},
                     "user_devices": null,
                     "network_devices": null,
@@ -142,8 +181,8 @@ pub async fn check_enterprise_info(_admin: AdminRole, _session: SessionInfo) -> 
                 limit: limits.locations,
             },
             users: LimitInfo {
-                current: counts.user(),
-                limit: limits.users,
+                current: counts.actual_user(),
+                limit: u32::MAX,
             },
             devices: limits.network_devices.map_or(
                 Some(LimitInfo {
@@ -179,7 +218,6 @@ pub async fn check_enterprise_info(_admin: AdminRole, _session: SessionInfo) -> 
             "tier": license.tier,
             "support_type": license.support_type,
             "limits": limits_info,
-            // effective set of enabled features (tier-granted plus additive flags)
             "features": features,
             "customer_id": license.customer_id,
         })
@@ -197,8 +235,6 @@ where
 {
     type Rejection = WebError;
 
-    /// Returns an error if current session user is not allowed to manage devices.
-    /// The permission is defined by [`EnterpriseSettings::admin_device_management`] setting.
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let appstate = AppState::from_ref(state);
         let session = SessionInfo::from_request_parts(parts, state).await?;

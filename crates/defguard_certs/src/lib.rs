@@ -15,7 +15,7 @@ use x509_parser::{
     parse_x509_certificate,
 };
 
-const CA_NAME: &str = "Defguard CA";
+const CA_NAME: &str = "S-Metric Secure CA";
 const NOT_BEFORE_OFFSET_SECS: Duration = Duration::minutes(5);
 const DEFAULT_CERT_VALIDITY_DAYS: i64 = 1825;
 const WEB_HTTPS_CERT_VALIDITY_DAYS: i64 = 100;

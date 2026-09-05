@@ -35,6 +35,7 @@ use crate::{
 pub(crate) mod activity_log;
 pub mod app_info;
 pub mod auth;
+pub mod branding;
 pub mod component_setup;
 pub mod core_certs;
 pub(crate) mod forward_auth;

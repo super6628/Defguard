@@ -7,7 +7,7 @@ use axum::{extract::Request, http, response::Response};
 use http::HeaderValue;
 use tower::Service;
 
-use crate::{VERSION_HEADER, server::DefguardVersionService};
+use crate::{PUBLIC_VERSION_HEADER, server::DefguardVersionService};
 
 impl<S, B> Service<Request> for DefguardVersionService<S>
 where
@@ -20,16 +20,11 @@ where
     type Response = Response<B>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        // Delegate readiness polling to the inner service
         self.inner.poll_ready(cx)
     }
 
     fn call(&mut self, request: Request) -> Self::Future {
         let mut inner = self.inner.clone();
-
-        // Pre-parse header values
-        //
-        // We avoid adding a system header here deliberately.
         let parsed_info = self
             .component_info
             .version
@@ -38,12 +33,12 @@ where
             .ok();
 
         Box::pin(async move {
-            // Process the request with the inner service first
             let mut response = inner.call(request).await?;
 
-            // Add version headers
+            // Public HTTP responses use S-Metric branding. Internal gRPC metadata keeps
+            // the legacy compatibility header names used by existing components.
             if let Some(version) = parsed_info {
-                response.headers_mut().insert(VERSION_HEADER, version);
+                response.headers_mut().insert(PUBLIC_VERSION_HEADER, version);
             }
 
             Ok(response)
