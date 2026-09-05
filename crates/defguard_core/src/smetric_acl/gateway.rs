@@ -1,19 +1,14 @@
 use std::{net::IpAddr, str::FromStr};
 
-use defguard_common::{
-    gateway_event::GatewayCommand,
-    gateway_types::{
-        FirewallConfig, FirewallPolicy, FirewallRule, IpAddress, IpRange, IpVersion, Port,
-        PortRange as GatewayPortRange, Protocol as GatewayProtocol, SnatBinding,
-    },
+use defguard_common::gateway_types::{
+    FirewallConfig, FirewallPolicy, FirewallRule, IpAddress, IpRange, IpVersion, Port,
+    PortRange as GatewayPortRange, Protocol as GatewayProtocol, SnatBinding,
 };
 use ipnetwork::IpNetwork;
-use sha256::digest;
 use sqlx::PgPool;
 
-use super::deployment::record_desired;
-use super::service::{ServiceError, load_policy};
-use super::{Action, CompiledPolicy, DefaultAction, Destination, Protocol, Rule, Subject, compile};
+use super::service::ServiceError;
+use super::{Action, CompiledPolicy, DefaultAction, Destination, Protocol, Rule, Subject};
 
 #[derive(Debug, thiserror::Error)]
 pub enum GatewayEnforcementError {
@@ -21,8 +16,6 @@ pub enum GatewayEnforcementError {
     Database(#[from] sqlx::Error),
     #[error(transparent)]
     Service(#[from] ServiceError),
-    #[error("S-Metric ACL policy {0} is not assigned to any enabled VPN location")]
-    NoAssignments(i64),
     #[error(
         "rule {rule_id} source selector '{selector}' resolved to no VPN addresses at location {location_id}"
     )]
@@ -44,62 +37,6 @@ pub enum GatewayEnforcementError {
     AddressFamilyMismatch(i64),
     #[error("rule {0} contains an invalid IP selector")]
     InvalidAddress(i64),
-}
-
-#[derive(Clone, Debug)]
-pub struct GatewayDeployment {
-    pub policy_id: i64,
-    pub location_id: i64,
-    pub generation: i64,
-    pub effective_checksum: String,
-    pub command: GatewayCommand,
-}
-
-pub async fn prepare_deployments(
-    pool: &PgPool,
-    policy_id: i64,
-) -> Result<Vec<GatewayDeployment>, GatewayEnforcementError> {
-    let policy = compile(load_policy(pool, policy_id).await?).map_err(ServiceError::Validation)?;
-    let location_ids = sqlx::query_scalar::<_, i64>(
-        "SELECT location_id FROM smetric_acl_policy_assignment WHERE policy_id = $1 AND enabled = TRUE ORDER BY location_id",
-    )
-    .bind(policy_id)
-    .fetch_all(pool)
-    .await?;
-    if location_ids.is_empty() {
-        return Err(GatewayEnforcementError::NoAssignments(policy_id));
-    }
-
-    let mut prepared = Vec::with_capacity(location_ids.len());
-    for location_id in location_ids {
-        let config = translate_policy_for_location(pool, &policy, location_id).await?;
-        let effective_checksum = effective_config_checksum(&config);
-        prepared.push((location_id, config, effective_checksum));
-    }
-
-    let mut deployments = Vec::with_capacity(prepared.len());
-    for (location_id, config, effective_checksum) in prepared {
-        let generation = record_desired(
-            pool,
-            policy_id,
-            location_id,
-            policy.revision,
-            &effective_checksum,
-        )
-        .await?;
-        deployments.push(GatewayDeployment {
-            policy_id,
-            location_id,
-            generation,
-            effective_checksum,
-            command: GatewayCommand::FirewallConfigChanged(location_id, config),
-        });
-    }
-    Ok(deployments)
-}
-
-fn effective_config_checksum(config: &FirewallConfig) -> String {
-    digest(format!("{config:?}"))
 }
 
 pub async fn translate_policy_for_location(
