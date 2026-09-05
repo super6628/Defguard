@@ -185,3 +185,38 @@ async fn test_duplicate_rule_apply_rolls_back_batch(
     let persisted: ApiAclRule = response.json().await;
     assert_eq!(persisted.state, RuleState::New);
 }
+
+#[sqlx::test]
+async fn test_invalid_rule_update_preserves_existing_rule(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = setup_pool(options).await;
+    let (mut client, _) = make_test_client(pool).await;
+    authenticate_admin(&mut client).await;
+
+    let rule = make_rule();
+    let response = client.post("/api/v1/acl/rule").json(&rule).send().await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: ApiAclRule = response.json().await;
+
+    let mut invalid_update = created.clone();
+    invalid_update.name = "   ".to_owned();
+    invalid_update.all_locations = false;
+    invalid_update.locations.clear();
+
+    let response = client
+        .put(format!("/api/v1/acl/rule/{}", created.id))
+        .json(&invalid_update)
+        .send()
+        .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let response = client
+        .get(format!("/api/v1/acl/rule/{}", created.id))
+        .send()
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let persisted: ApiAclRule = response.json().await;
+    assert_eq!(persisted, created);
+}
