@@ -44,32 +44,40 @@ export const AutoAdoptionSummaryStep = () => {
     }
   };
 
-  const recommendations: WizardStepSummaryRecommendation[] = [
-    {
+  const recommendations: WizardStepSummaryRecommendation[] = [];
+
+  if (branding.documentationUrl) {
+    recommendations.push({
       iconSrc: FileIcon,
       iconAlt: m.initial_setup_auto_adoption_summary_docs_icon_alt(),
       kicker: m.initial_setup_auto_adoption_summary_docs_kicker(),
       title: m.initial_setup_auto_adoption_summary_docs_title(),
       buttonText: m.initial_setup_auto_adoption_summary_docs_button(),
       onButtonClick: () => window.open(branding.documentationUrl, '_blank'),
-    },
-    {
+    });
+  }
+
+  if (branding.supportUrl) {
+    recommendations.push({
       iconSrc: CommunityIcon,
       iconAlt: m.initial_setup_auto_adoption_summary_community_icon_alt(),
       kicker: m.initial_setup_auto_adoption_summary_community_kicker(),
       title: m.initial_setup_auto_adoption_summary_community_title(),
       buttonText: m.initial_setup_auto_adoption_summary_community_button(),
       onButtonClick: () => window.open(branding.supportUrl, '_blank'),
-    },
-    {
+    });
+  }
+
+  if (branding.supportEmail) {
+    recommendations.push({
       iconSrc: ShieldIcon,
       iconAlt: m.initial_setup_auto_adoption_summary_support_icon_alt(),
       kicker: m.initial_setup_auto_adoption_summary_support_kicker(),
       title: m.initial_setup_auto_adoption_summary_support_title(),
       buttonText: m.initial_setup_auto_adoption_summary_support_button(),
-      onButtonClick: () => window.open(branding.websiteUrl, '_blank'),
-    },
-  ];
+      onButtonClick: () => window.location.assign(`mailto:${branding.supportEmail}`),
+    });
+  }
 
   return (
     <WizardStepSummary
