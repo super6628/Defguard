@@ -137,9 +137,29 @@ pub struct EditAclRule {
 
 impl EditAclRule {
     pub async fn validate(&self, conn: &mut PgConnection) -> Result<(), WebError> {
+        if self.name.trim().is_empty() {
+            return Err(WebError::BadRequest("Rule name cannot be empty".to_owned()));
+        }
+
         if !self.all_locations && self.locations.is_empty() {
             return Err(WebError::BadRequest(
                 "Must provide at least one location when all locations are disabled".to_owned(),
+            ));
+        }
+
+        if self.allow_all_users && self.deny_all_users {
+            return Err(WebError::BadRequest(
+                "Cannot allow and deny all users at the same time".to_owned(),
+            ));
+        }
+        if self.allow_all_groups && self.deny_all_groups {
+            return Err(WebError::BadRequest(
+                "Cannot allow and deny all groups at the same time".to_owned(),
+            ));
+        }
+        if self.allow_all_network_devices && self.deny_all_network_devices {
+            return Err(WebError::BadRequest(
+                "Cannot allow and deny all network devices at the same time".to_owned(),
             ));
         }
 
