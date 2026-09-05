@@ -1,4 +1,5 @@
 pub mod api;
+pub mod deployment;
 pub mod device_groups;
 pub mod gateway;
 pub mod service;
