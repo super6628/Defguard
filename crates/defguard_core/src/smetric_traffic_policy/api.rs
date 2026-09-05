@@ -52,10 +52,11 @@ impl From<TrafficPolicyError> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = match self.0 {
-            TrafficPolicyError::NotFound(_) | TrafficPolicyError::DeviceNotFound(_) => {
-                StatusCode::NOT_FOUND
-            }
+            TrafficPolicyError::NotFound(_)
+            | TrafficPolicyError::DeviceNotFound(_)
+            | TrafficPolicyError::TargetNotFound(_) => StatusCode::NOT_FOUND,
             TrafficPolicyError::EmptyName
+            | TrafficPolicyError::MissingTargets
             | TrafficPolicyError::MissingDestinations
             | TrafficPolicyError::NeverPublished(_)
             | TrafficPolicyError::InvalidStoredValue(_) => StatusCode::BAD_REQUEST,
