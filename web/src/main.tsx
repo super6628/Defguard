@@ -13,6 +13,12 @@ document.title = brandConfig.productName;
 applicationNameMeta?.setAttribute('content', brandConfig.productName);
 authorMeta?.setAttribute('content', brandConfig.companyName);
 
+if (brandConfig.faviconUrl) {
+  for (const favicon of document.querySelectorAll<HTMLLinkElement>('link[rel*="icon"]')) {
+    favicon.href = brandConfig.faviconUrl;
+  }
+}
+
 // biome-ignore lint/style/noNonNullAssertion: always there
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
