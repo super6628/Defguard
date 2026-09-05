@@ -5,6 +5,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{delete, get, post},
 };
+use defguard_common::gateway_event::GatewayCommand;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
@@ -14,7 +15,11 @@ use crate::{
     grpc::smetric_config_sync::notify_config_changed,
 };
 
-use super::gateway::{GatewayEnforcementError, prepare_deployments};
+use super::{
+    gateway::GatewayEnforcementError,
+    location_deployment::ensure_desired as ensure_location_desired,
+    location_effective::compile_location_firewall,
+};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct DeviceGroup {
@@ -302,12 +307,26 @@ async fn redeploy_published_policies_for_group(
     state: &AppState,
     group_name: &str,
 ) -> Result<(), DeviceGroupError> {
-    let policy_ids = published_policy_ids_for_group(&state.pool, group_name).await?;
-    let mut commands = Vec::new();
+    let location_ids = published_location_ids_for_group(&state.pool, group_name).await?;
+    let mut prepared = Vec::with_capacity(location_ids.len());
 
-    for policy_id in policy_ids {
-        let deployments = prepare_deployments(&state.pool, policy_id).await?;
-        commands.extend(deployments.into_iter().map(|deployment| deployment.command));
+    // Compile every affected location before changing desired deployment state. A selector/render
+    // failure therefore leaves all location generations untouched and allows the caller's existing
+    // device-group mutation compensation to restore the database change safely.
+    for location_id in location_ids {
+        let effective = compile_location_firewall(&state.pool, location_id).await?;
+        if !effective.policy_ids.is_empty() {
+            prepared.push((location_id, effective));
+        }
+    }
+
+    let mut commands = Vec::with_capacity(prepared.len());
+    for (location_id, effective) in prepared {
+        ensure_location_desired(&state.pool, location_id, &effective.checksum).await?;
+        commands.push(GatewayCommand::FirewallConfigChanged(
+            location_id,
+            effective.config,
+        ));
     }
 
     if !commands.is_empty() {
@@ -316,14 +335,15 @@ async fn redeploy_published_policies_for_group(
     Ok(())
 }
 
-async fn published_policy_ids_for_group(
+async fn published_location_ids_for_group(
     pool: &PgPool,
     group_name: &str,
 ) -> Result<Vec<i64>, sqlx::Error> {
     sqlx::query_scalar::<_, i64>(
-        "SELECT DISTINCT p.id \
+        "SELECT DISTINCT a.location_id \
          FROM smetric_acl_policy p \
          JOIN smetric_acl_rule r ON r.policy_id = p.id \
+         JOIN smetric_acl_policy_assignment a ON a.policy_id = p.id AND a.enabled = TRUE \
          WHERE p.enabled = TRUE \
            AND r.enabled = TRUE \
            AND r.source_kind = 'device_group' \
@@ -332,7 +352,7 @@ async fn published_policy_ids_for_group(
                SELECT 1 FROM smetric_acl_revision rev \
                WHERE rev.policy_id = p.id AND rev.revision = p.revision \
            ) \
-         ORDER BY p.id",
+         ORDER BY a.location_id",
     )
     .bind(group_name)
     .fetch_all(pool)
