@@ -39,6 +39,7 @@ use crate::common::{init_config, initialize_users};
 mod aliases;
 mod destinations;
 mod rules;
+mod validation;
 
 async fn make_client_v2(pool: PgPool, config: DefGuardConfig) -> TestClient {
     let listener = TcpListener::bind("127.0.0.1:0")
