@@ -1,5 +1,6 @@
 import { type ReactNode, useMemo, useState } from 'react';
 import { m } from '../../../paraglide/messages';
+import { branding } from '../../../shared/branding/branding';
 import { Card } from '../../../shared/components/Card/Card';
 import { CodeSnippet } from '../../../shared/components/CodeSnippet/CodeSnippet';
 import { Controls } from '../../../shared/components/Controls/Controls';
@@ -189,12 +190,12 @@ const PackageTab = () => {
       <CodeSnippet
         value={`sudo apt update
 sudo apt install -y ca-certificates curl
-#Add official Defguard public GPG key
+# Add package repository signing key
 sudo install -m 0755 -d /etc/apt/keyrings
 sudo curl -fsSL https://apt.defguard.net/defguard.asc -o /etc/apt/keyrings/defguard.asc
 sudo chmod a+r /etc/apt/keyrings/defguard.asc
 
-#Add APT repository
+# Add APT repository
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/defguard.asc] https://apt.defguard.net/ trixie release-2.0 " | \
    sudo tee /etc/apt/sources.list.d/defguard.list > /dev/null
 
@@ -256,39 +257,31 @@ const OtherDeploymentMethod = ({
 };
 
 const OthersTab = () => {
+  const documentationUrl = branding.documentationUrl;
+
   return (
     <>
       <TabContentHeader
         title={m.gateway_setup_step_deploy_tabs_other_title()}
         subtitle={m.gateway_setup_step_deploy_tabs_other_subtitle()}
       />
-      <div id="other-deployment-methods">
-        <OtherDeploymentMethod
-          name={`Kubernetes`}
-          link={`https://docs.defguard.net/deployment-strategies/kubernetes#deployment`}
-          image={kubernetesImage}
-        />
-        <OtherDeploymentMethod
-          name={`Amazon Machine Image`}
-          link={`https://docs.defguard.net/deployment-strategies/amis-and-aws-cloudformation`}
-          image={amazonImage}
-        />
-        <OtherDeploymentMethod
-          name={`Terraform`}
-          link={`https://docs.defguard.net/deployment-strategies/terraform`}
-          image={teraImage}
-        />
-        <OtherDeploymentMethod
-          name={`VyOS`}
-          link={`https://docs.defguard.net/deployment-strategies/running-gateway-on-vyos`}
-          image={vyosImage}
-        />
-        <OtherDeploymentMethod
-          name={`OPNSense`}
-          link={`https://docs.defguard.net/deployment-strategies/running-gateway-on-opnsense-firewall`}
-          image={opnsenseImage}
-        />
-      </div>
+      {documentationUrl ? (
+        <div id="other-deployment-methods">
+          <OtherDeploymentMethod name="Kubernetes" link={documentationUrl} image={kubernetesImage} />
+          <OtherDeploymentMethod
+            name="Amazon Machine Image"
+            link={documentationUrl}
+            image={amazonImage}
+          />
+          <OtherDeploymentMethod name="Terraform" link={documentationUrl} image={teraImage} />
+          <OtherDeploymentMethod name="VyOS" link={documentationUrl} image={vyosImage} />
+          <OtherDeploymentMethod name="OPNSense" link={documentationUrl} image={opnsenseImage} />
+        </div>
+      ) : (
+        <AppText font={TextStyle.TBodySm400} color={ThemeVariable.FgFaded}>
+          Contact your administrator for deployment documentation.
+        </AppText>
+      )}
       <SizedBox height={ThemeSpacing.Lg} />
       <AppText font={TextStyle.TBodySm400} color={ThemeVariable.FgFaded}>
         {m.gateway_setup_step_deploy_tabs_other_launch()}
