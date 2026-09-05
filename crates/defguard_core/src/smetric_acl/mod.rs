@@ -253,6 +253,10 @@ pub enum ValidationError {
     InvalidIp { rule_id: i64, value: String },
     #[error("rule {rule_id} has invalid IP range '{value}'")]
     InvalidIpRange { rule_id: i64, value: String },
+    #[error("rule {rule_id} uses action '{action}', which is not supported by the current gateway protocol")]
+    UnsupportedAction { rule_id: i64, action: Action },
+    #[error("rule {rule_id} uses destination selector '{selector}', which is not supported by S-Metric gateway enforcement")]
+    UnsupportedDestinationSelector { rule_id: i64, selector: &'static str },
     #[error("invalid {field} value '{value}'")]
     InvalidEnumValue { field: &'static str, value: String },
 }
@@ -282,6 +286,12 @@ pub fn validate(policy: &Policy) -> Result<(), ValidationError> {
             return Err(ValidationError::InvalidPriority {
                 rule_id: rule.id,
                 priority: rule.priority,
+            });
+        }
+        if matches!(rule.action, Action::Reject) {
+            return Err(ValidationError::UnsupportedAction {
+                rule_id: rule.id,
+                action: rule.action,
             });
         }
         if let Some(ports) = &rule.ports {
@@ -359,8 +369,19 @@ pub fn validate(policy: &Policy) -> Result<(), ValidationError> {
                     });
                 }
             }
-            Destination::Alias(value) | Destination::Service(value) => {
+            Destination::Alias(value) => {
                 validate_nonempty(rule.id, value, false)?;
+                return Err(ValidationError::UnsupportedDestinationSelector {
+                    rule_id: rule.id,
+                    selector: "alias",
+                });
+            }
+            Destination::Service(value) => {
+                validate_nonempty(rule.id, value, false)?;
+                return Err(ValidationError::UnsupportedDestinationSelector {
+                    rule_id: rule.id,
+                    selector: "service",
+                });
             }
         }
     }
