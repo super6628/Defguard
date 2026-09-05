@@ -233,6 +233,26 @@ pub async fn load_policy(pool: &PgPool, policy_id: i64) -> Result<Policy, Servic
     })
 }
 
+/// Load the newest immutable published snapshot for a policy.
+///
+/// This intentionally does not read mutable draft rules. Existing pre-snapshot revision rows are
+/// skipped until the administrator republishes the policy once under the snapshot-aware schema.
+pub async fn load_latest_published_policy(
+    pool: &PgPool,
+    policy_id: i64,
+) -> Result<Option<Policy>, ServiceError> {
+    let snapshot = sqlx::query_scalar::<_, serde_json::Value>(
+        "SELECT policy_snapshot FROM smetric_acl_revision WHERE policy_id=$1 AND policy_snapshot IS NOT NULL ORDER BY revision DESC LIMIT 1",
+    )
+    .bind(policy_id)
+    .fetch_optional(pool)
+    .await?;
+    snapshot
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|error| ServiceError::InvalidStoredValue(format!("invalid published policy snapshot: {error}")))
+}
+
 pub async fn validate_policy(pool: &PgPool, policy_id: i64) -> Result<Policy, ServiceError> {
     let policy = load_policy(pool, policy_id).await?;
     validate(&policy)?;
@@ -243,11 +263,15 @@ pub async fn publish_policy(
     pool: &PgPool,
     policy_id: i64,
 ) -> Result<PublishedPolicy, ServiceError> {
-    let compiled = compile(load_policy(pool, policy_id).await?)?;
-    sqlx::query("INSERT INTO smetric_acl_revision (policy_id, revision, checksum) VALUES ($1,$2,$3) ON CONFLICT (policy_id, revision) DO UPDATE SET checksum=EXCLUDED.checksum, compiled_at=NOW()")
+    let policy = load_policy(pool, policy_id).await?;
+    let compiled = compile(policy.clone())?;
+    let snapshot = serde_json::to_value(&policy)
+        .map_err(|error| ServiceError::InvalidStoredValue(format!("failed to serialize policy snapshot: {error}")))?;
+    sqlx::query("INSERT INTO smetric_acl_revision (policy_id, revision, checksum, policy_snapshot) VALUES ($1,$2,$3,$4) ON CONFLICT (policy_id, revision) DO UPDATE SET checksum=EXCLUDED.checksum, policy_snapshot=EXCLUDED.policy_snapshot, compiled_at=NOW()")
         .bind(policy_id)
         .bind(i64::try_from(compiled.revision).map_err(|_| ServiceError::InvalidStoredValue("revision exceeds BIGINT".into()))?)
         .bind(&compiled.checksum)
+        .bind(snapshot)
         .execute(pool)
         .await?;
     Ok(PublishedPolicy {
@@ -290,92 +314,100 @@ fn summary_from_row(row: (i64, String, Option<String>, bool, String, i64)) -> Re
     })
 }
 
-fn encode_ports(value: Option<&PortRange>) -> Option<String> {
-    value.map(|p| format!("[{},{}]", p.start, u32::from(p.end) + 1))
+fn rule_from_row(row: (i64, String, i32, bool, String, String, Option<String>, String, Option<String>, String, Option<String>)) -> Result<Rule, ServiceError> {
+    Ok(Rule {
+        id: row.0,
+        name: row.1,
+        priority: u32::try_from(row.2).map_err(|_| ServiceError::InvalidStoredValue("negative priority".into()))?,
+        enabled: row.3,
+        action: Action::from_str(&row.4).map_err(ServiceError::InvalidStoredValue)?,
+        protocol: Protocol::from_str(&row.5).map_err(ServiceError::InvalidStoredValue)?,
+        ports: decode_ports(row.6.as_deref())?,
+        source: decode_subject(&row.7, row.8)?,
+        destination: decode_destination(&row.9, row.10)?,
+    })
 }
 
-fn action_str(value: Action) -> &'static str {
-    match value { Action::Allow => "allow", Action::Deny => "deny", Action::Reject => "reject" }
+fn action_str(action: Action) -> &'static str {
+    match action { Action::Allow => "allow", Action::Deny => "deny", Action::Reject => "reject" }
 }
-fn protocol_str(value: Protocol) -> &'static str {
-    match value { Protocol::Any => "any", Protocol::Tcp => "tcp", Protocol::Udp => "udp", Protocol::Icmp => "icmp" }
+
+fn protocol_str(protocol: Protocol) -> &'static str {
+    match protocol { Protocol::Any => "any", Protocol::Tcp => "tcp", Protocol::Udp => "udp", Protocol::Icmp => "icmp" }
 }
-fn parse_action(value: &str) -> Result<Action, ServiceError> {
-    match value {
-        "allow" => Ok(Action::Allow), "deny" => Ok(Action::Deny), "reject" => Ok(Action::Reject),
-        _ => Err(ServiceError::InvalidStoredValue(format!("action {value}"))),
-    }
-}
-fn parse_protocol(value: &str) -> Result<Protocol, ServiceError> {
-    match value {
-        "any" => Ok(Protocol::Any), "tcp" => Ok(Protocol::Tcp), "udp" => Ok(Protocol::Udp), "icmp" => Ok(Protocol::Icmp),
-        _ => Err(ServiceError::InvalidStoredValue(format!("protocol {value}"))),
-    }
-}
+
 fn parse_default_action(value: &str) -> Result<DefaultAction, ServiceError> {
-    match value {
-        "allow" => Ok(DefaultAction::Allow), "deny" => Ok(DefaultAction::Deny),
-        _ => Err(ServiceError::InvalidStoredValue(format!("default action {value}"))),
-    }
+    DefaultAction::from_str(value).map_err(ServiceError::InvalidStoredValue)
 }
 
-fn encode_subject(value: &Subject) -> (&'static str, Option<&str>) {
-    match value {
-        Subject::Any => ("any", None), Subject::User(v) => ("user", Some(v)), Subject::Group(v) => ("group", Some(v)),
-        Subject::Device(v) => ("device", Some(v)), Subject::DeviceGroup(v) => ("device_group", Some(v)),
-        Subject::Location(v) => ("location", Some(v)), Subject::Cidr(v) => ("cidr", Some(v)),
-    }
+fn encode_ports(ports: Option<&PortRange>) -> Option<String> {
+    ports.map(|range| format!("[{},{}]", range.start, u32::from(range.end) + 1))
 }
-fn encode_destination(value: &Destination) -> (&'static str, Option<&str>) {
-    match value {
-        Destination::Any => ("any", None), Destination::Cidr(v) => ("cidr", Some(v)), Destination::Ip(v) => ("ip", Some(v)),
-        Destination::IpRange(v) => ("ip_range", Some(v)), Destination::Alias(v) => ("alias", Some(v)), Destination::Service(v) => ("service", Some(v)),
+
+fn decode_ports(value: Option<&str>) -> Result<Option<PortRange>, ServiceError> {
+    let Some(value) = value else { return Ok(None); };
+    let inner = value.trim().trim_start_matches('[').trim_end_matches(')').trim_end_matches(']');
+    let (start, end_exclusive) = inner.split_once(',').ok_or_else(|| ServiceError::InvalidStoredValue(format!("invalid port range {value}")))?;
+    let start = start.parse::<u16>().map_err(|_| ServiceError::InvalidStoredValue(format!("invalid port range {value}")))?;
+    let end_exclusive = end_exclusive.parse::<u32>().map_err(|_| ServiceError::InvalidStoredValue(format!("invalid port range {value}")))?;
+    let end = u16::try_from(end_exclusive.checked_sub(1).ok_or_else(|| ServiceError::InvalidStoredValue(format!("invalid port range {value}")))?)
+        .map_err(|_| ServiceError::InvalidStoredValue(format!("invalid port range {value}")))?;
+    Ok(Some(PortRange { start, end }))
+}
+
+fn encode_subject(subject: &Subject) -> (&'static str, Option<String>) {
+    match subject {
+        Subject::Any => ("any", None),
+        Subject::User(value) => ("user", Some(value.clone())),
+        Subject::Group(value) => ("group", Some(value.clone())),
+        Subject::Device(value) => ("device", Some(value.clone())),
+        Subject::DeviceGroup(value) => ("device_group", Some(value.clone())),
+        Subject::Location(value) => ("location", Some(value.clone())),
+        Subject::Cidr(value) => ("cidr", Some(value.to_string())),
     }
 }
 
 fn decode_subject(kind: &str, value: Option<String>) -> Result<Subject, ServiceError> {
     let required = || value.clone().ok_or_else(|| ServiceError::InvalidStoredValue(format!("missing source value for {kind}")));
     match kind {
-        "any" => Ok(Subject::Any), "user" => Ok(Subject::User(required()?)), "group" => Ok(Subject::Group(required()?)),
-        "device" => Ok(Subject::Device(required()?)), "device_group" => Ok(Subject::DeviceGroup(required()?)),
-        "location" => Ok(Subject::Location(required()?)), "cidr" => Ok(Subject::Cidr(required()?)),
-        _ => Err(ServiceError::InvalidStoredValue(format!("source kind {kind}"))),
+        "any" => Ok(Subject::Any),
+        "user" => Ok(Subject::User(required()?)),
+        "group" => Ok(Subject::Group(required()?)),
+        "device" => Ok(Subject::Device(required()?)),
+        "device_group" => Ok(Subject::DeviceGroup(required()?)),
+        "location" => Ok(Subject::Location(required()?)),
+        "cidr" => Ok(Subject::Cidr(required()?.parse().map_err(|_| ServiceError::InvalidStoredValue("invalid source CIDR".into()))?)),
+        other => Err(ServiceError::InvalidStoredValue(format!("unknown source kind {other}"))),
     }
 }
+
+fn encode_destination(destination: &Destination) -> (&'static str, Option<String>) {
+    match destination {
+        Destination::Any => ("any", None),
+        Destination::Cidr(value) => ("cidr", Some(value.to_string())),
+        Destination::Ip(value) => ("ip", Some(value.to_string())),
+        Destination::IpRange(start, end) => ("ip_range", Some(format!("{start}-{end}"))),
+        Destination::Alias(value) => ("alias", Some(value.clone())),
+        Destination::Service(value) => ("service", Some(value.clone())),
+    }
+}
+
 fn decode_destination(kind: &str, value: Option<String>) -> Result<Destination, ServiceError> {
     let required = || value.clone().ok_or_else(|| ServiceError::InvalidStoredValue(format!("missing destination value for {kind}")));
     match kind {
-        "any" => Ok(Destination::Any), "cidr" => Ok(Destination::Cidr(required()?)), "ip" => Ok(Destination::Ip(required()?)),
-        "ip_range" => Ok(Destination::IpRange(required()?)), "alias" => Ok(Destination::Alias(required()?)), "service" => Ok(Destination::Service(required()?)),
-        _ => Err(ServiceError::InvalidStoredValue(format!("destination kind {kind}"))),
+        "any" => Ok(Destination::Any),
+        "cidr" => Ok(Destination::Cidr(required()?.parse().map_err(|_| ServiceError::InvalidStoredValue("invalid destination CIDR".into()))?)),
+        "ip" => Ok(Destination::Ip(required()?.parse().map_err(|_| ServiceError::InvalidStoredValue("invalid destination IP".into()))?)),
+        "ip_range" => {
+            let raw = required()?;
+            let (start, end) = raw.split_once('-').ok_or_else(|| ServiceError::InvalidStoredValue("invalid IP range".into()))?;
+            Ok(Destination::IpRange(
+                start.parse().map_err(|_| ServiceError::InvalidStoredValue("invalid IP range start".into()))?,
+                end.parse().map_err(|_| ServiceError::InvalidStoredValue("invalid IP range end".into()))?,
+            ))
+        }
+        "alias" => Ok(Destination::Alias(required()?)),
+        "service" => Ok(Destination::Service(required()?)),
+        other => Err(ServiceError::InvalidStoredValue(format!("unknown destination kind {other}"))),
     }
-}
-
-fn parse_ports(value: Option<String>) -> Result<Option<PortRange>, ServiceError> {
-    let Some(value) = value else { return Ok(None) };
-    let trimmed = value.trim_matches(|c| c == '[' || c == ']' || c == '(' || c == ')');
-    let (start, end) = trimmed.split_once(',').ok_or_else(|| ServiceError::InvalidStoredValue(format!("port range {value}")))?;
-    let start = u16::from_str(start.trim()).map_err(|_| ServiceError::InvalidStoredValue(format!("port range {value}")))?;
-    let exclusive_end = u32::from_str(end.trim()).map_err(|_| ServiceError::InvalidStoredValue(format!("port range {value}")))?;
-    let end = exclusive_end.checked_sub(1).and_then(|v| u16::try_from(v).ok()).ok_or_else(|| ServiceError::InvalidStoredValue(format!("port range {value}")))?;
-    Ok(Some(PortRange { start, end }))
-}
-
-fn rule_from_row(
-    row: (i64, String, i32, bool, String, String, Option<String>, String, Option<String>, String, Option<String>),
-) -> Result<Rule, ServiceError> {
-    if row.2 < 0 {
-        return Err(ServiceError::InvalidStoredValue("negative priority".into()));
-    }
-    Ok(Rule {
-        id: row.0,
-        name: row.1,
-        priority: row.2,
-        enabled: row.3,
-        action: parse_action(&row.4)?,
-        protocol: parse_protocol(&row.5)?,
-        ports: parse_ports(row.6)?,
-        source: decode_subject(&row.7, row.8)?,
-        destination: decode_destination(&row.9, row.10)?,
-    })
 }
