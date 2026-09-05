@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS smetric_acl_assignment_one_active_policy_per_location_idx;
