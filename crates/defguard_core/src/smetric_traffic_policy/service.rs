@@ -24,6 +24,8 @@ pub enum TrafficPolicyError {
     EmptyName,
     #[error("split-tunnel and bypass policies require at least one destination")]
     MissingDestinations,
+    #[error("client traffic policy {0} has never been published")]
+    NeverPublished(i64),
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -36,6 +38,8 @@ pub struct CreateTrafficPolicy {
     pub targets: Vec<TrafficTarget>,
     pub destinations: Vec<TrafficDestination>,
 }
+
+pub type UpdateTrafficPolicy = CreateTrafficPolicy;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PublishedTrafficPolicy {
@@ -61,16 +65,74 @@ pub async fn create_policy(
     .bind(input.description)
     .bind(input.enabled)
     .bind(mode_str(input.mode))
-    .bind(i32::try_from(input.priority).map_err(|_| {
-        TrafficPolicyError::InvalidStoredValue("priority exceeds PostgreSQL INTEGER".into())
-    })?)
+    .bind(priority_i32(input.priority)?)
     .fetch_one(&mut *tx)
     .await?;
-
     replace_targets(&mut tx, row.0, &input.targets).await?;
     replace_destinations(&mut tx, row.0, &input.destinations).await?;
     tx.commit().await?;
     load_policy(pool, row.0).await
+}
+
+pub async fn update_policy(
+    pool: &PgPool,
+    policy_id: i64,
+    input: UpdateTrafficPolicy,
+) -> Result<TrafficPolicy, TrafficPolicyError> {
+    validate_input(&input)?;
+    let mut tx = pool.begin().await?;
+    let result = sqlx::query(
+        "UPDATE smetric_traffic_policy SET name=$2,description=$3,mode=$4,priority=$5, \
+         revision=revision+1,updated_at=NOW() WHERE id=$1",
+    )
+    .bind(policy_id)
+    .bind(input.name.trim())
+    .bind(input.description)
+    .bind(mode_str(input.mode))
+    .bind(priority_i32(input.priority)?)
+    .execute(&mut *tx)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(TrafficPolicyError::NotFound(policy_id));
+    }
+    sqlx::query("DELETE FROM smetric_traffic_policy_target WHERE policy_id=$1")
+        .bind(policy_id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM smetric_traffic_policy_destination WHERE policy_id=$1")
+        .bind(policy_id)
+        .execute(&mut *tx)
+        .await?;
+    replace_targets(&mut tx, policy_id, &input.targets).await?;
+    replace_destinations(&mut tx, policy_id, &input.destinations).await?;
+    tx.commit().await?;
+    if input.enabled {
+        set_enabled(pool, policy_id, true).await?;
+    } else {
+        set_enabled(pool, policy_id, false).await?;
+    }
+    load_policy(pool, policy_id).await
+}
+
+pub async fn set_enabled(
+    pool: &PgPool,
+    policy_id: i64,
+    enabled: bool,
+) -> Result<(), TrafficPolicyError> {
+    if enabled && load_latest_published_policy(pool, policy_id).await?.is_none() {
+        return Err(TrafficPolicyError::NeverPublished(policy_id));
+    }
+    let result = sqlx::query(
+        "UPDATE smetric_traffic_policy SET enabled=$2,updated_at=NOW() WHERE id=$1",
+    )
+    .bind(policy_id)
+    .bind(enabled)
+    .execute(pool)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(TrafficPolicyError::NotFound(policy_id));
+    }
+    Ok(())
 }
 
 pub async fn load_policy(
@@ -86,6 +148,23 @@ pub async fn load_policy(
     .await?
     .ok_or(TrafficPolicyError::NotFound(policy_id))?;
     policy_from_row(pool, row).await
+}
+
+pub async fn load_latest_published_policy(
+    pool: &PgPool,
+    policy_id: i64,
+) -> Result<Option<TrafficPolicy>, TrafficPolicyError> {
+    let snapshot = sqlx::query_scalar::<_, serde_json::Value>(
+        "SELECT policy_snapshot FROM smetric_traffic_policy_revision \
+         WHERE policy_id=$1 ORDER BY revision DESC LIMIT 1",
+    )
+    .bind(policy_id)
+    .fetch_optional(pool)
+    .await?;
+    snapshot
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|error| TrafficPolicyError::InvalidStoredValue(format!("invalid published snapshot: {error}")))
 }
 
 pub async fn list_policies(pool: &PgPool) -> Result<Vec<TrafficPolicy>, TrafficPolicyError> {
@@ -119,21 +198,23 @@ pub async fn publish_policy(
 ) -> Result<PublishedTrafficPolicy, TrafficPolicyError> {
     let policy = load_policy(pool, policy_id).await?;
     validate_policy(&policy)?;
-    let checksum = digest(
-        serde_json::to_string(&policy)
-            .map_err(|error| TrafficPolicyError::InvalidStoredValue(error.to_string()))?,
-    );
+    let serialized = serde_json::to_string(&policy)
+        .map_err(|error| TrafficPolicyError::InvalidStoredValue(error.to_string()))?;
+    let checksum = digest(&serialized);
+    let snapshot = serde_json::to_value(&policy)
+        .map_err(|error| TrafficPolicyError::InvalidStoredValue(error.to_string()))?;
     sqlx::query(
-        "INSERT INTO smetric_traffic_policy_revision (policy_id,revision,checksum) \
-         VALUES ($1,$2,$3) \
-         ON CONFLICT (policy_id,revision) DO UPDATE \
-         SET checksum=EXCLUDED.checksum, compiled_at=NOW()",
+        "INSERT INTO smetric_traffic_policy_revision (policy_id,revision,checksum,policy_snapshot) \
+         VALUES ($1,$2,$3,$4) \
+         ON CONFLICT (policy_id,revision) DO UPDATE SET \
+         checksum=EXCLUDED.checksum, policy_snapshot=EXCLUDED.policy_snapshot, compiled_at=NOW()",
     )
     .bind(policy_id)
     .bind(i64::try_from(policy.revision).map_err(|_| {
         TrafficPolicyError::InvalidStoredValue("revision exceeds PostgreSQL BIGINT".into())
     })?)
     .bind(&checksum)
+    .bind(snapshot)
     .execute(pool)
     .await?;
     Ok(PublishedTrafficPolicy {
@@ -143,10 +224,10 @@ pub async fn publish_policy(
     })
 }
 
-/// Resolve the policy the client should apply for a device at a VPN location.
+/// Resolve the published policy the client should apply for a device at a VPN location.
 ///
-/// Only policies whose current revision has been explicitly published participate. Matching is
-/// deterministic: Device > User > Group > Location > Global, then lower numeric priority, then id.
+/// Draft edits never affect this result. The current policy row only gates enabled/disabled state;
+/// matching, priority, mode and destinations all come from the last immutable published snapshot.
 pub async fn effective_for_device(
     pool: &PgPool,
     device_id: i64,
@@ -163,13 +244,20 @@ pub async fn effective_for_device(
     .bind(user_id)
     .fetch_all(pool)
     .await?;
+    let enabled_ids = sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM smetric_traffic_policy WHERE enabled=TRUE ORDER BY id",
+    )
+    .fetch_all(pool)
+    .await?;
 
-    let policies = list_policies(pool).await?;
-    let mut matches = Vec::new();
-    for policy in &policies {
-        if !current_revision_is_published(pool, policy).await? {
-            continue;
+    let mut published = Vec::new();
+    for policy_id in enabled_ids {
+        if let Some(policy) = load_latest_published_policy(pool, policy_id).await? {
+            published.push(policy);
         }
+    }
+    let mut matches = Vec::new();
+    for policy in &published {
         let best = policy
             .targets
             .iter()
@@ -179,22 +267,7 @@ pub async fn effective_for_device(
             matches.push((policy, target));
         }
     }
-
     Ok(resolve_effective_policy(matches).map(EffectiveTrafficPolicy::from))
-}
-
-async fn current_revision_is_published(
-    pool: &PgPool,
-    policy: &TrafficPolicy,
-) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM smetric_traffic_policy_revision \
-         WHERE policy_id=$1 AND revision=$2)",
-    )
-    .bind(policy.id)
-    .bind(i64::try_from(policy.revision).unwrap_or(i64::MAX))
-    .fetch_one(pool)
-    .await
 }
 
 fn target_matches(
@@ -223,15 +296,13 @@ async fn policy_from_row(
         ));
     }
     let target_rows = sqlx::query_as::<_, (String, Option<String>)>(
-        "SELECT target_kind,target_value FROM smetric_traffic_policy_target \
-         WHERE policy_id=$1 ORDER BY id",
+        "SELECT target_kind,target_value FROM smetric_traffic_policy_target WHERE policy_id=$1 ORDER BY id",
     )
     .bind(row.0)
     .fetch_all(pool)
     .await?;
     let destination_rows = sqlx::query_as::<_, (String, String)>(
-        "SELECT destination_kind,destination_value FROM smetric_traffic_policy_destination \
-         WHERE policy_id=$1 ORDER BY id",
+        "SELECT destination_kind,destination_value FROM smetric_traffic_policy_destination WHERE policy_id=$1 ORDER BY id",
     )
     .bind(row.0)
     .fetch_all(pool)
@@ -265,8 +336,7 @@ async fn replace_targets(
     for target in targets {
         let (kind, value) = encode_target(target);
         sqlx::query(
-            "INSERT INTO smetric_traffic_policy_target (policy_id,target_kind,target_value) \
-             VALUES ($1,$2,$3)",
+            "INSERT INTO smetric_traffic_policy_target (policy_id,target_kind,target_value) VALUES ($1,$2,$3)",
         )
         .bind(policy_id)
         .bind(kind)
@@ -285,8 +355,7 @@ async fn replace_destinations(
     for destination in destinations {
         let (kind, value) = encode_destination(destination);
         sqlx::query(
-            "INSERT INTO smetric_traffic_policy_destination \
-             (policy_id,destination_kind,destination_value) VALUES ($1,$2,$3)",
+            "INSERT INTO smetric_traffic_policy_destination (policy_id,destination_kind,destination_value) VALUES ($1,$2,$3)",
         )
         .bind(policy_id)
         .bind(kind)
@@ -315,6 +384,12 @@ fn validate_policy(policy: &TrafficPolicy) -> Result<(), TrafficPolicyError> {
         return Err(TrafficPolicyError::MissingDestinations);
     }
     Ok(())
+}
+
+fn priority_i32(priority: u32) -> Result<i32, TrafficPolicyError> {
+    i32::try_from(priority).map_err(|_| {
+        TrafficPolicyError::InvalidStoredValue("priority exceeds PostgreSQL INTEGER".into())
+    })
 }
 
 fn mode_str(mode: TrafficMode) -> &'static str {
@@ -369,10 +444,7 @@ fn encode_destination(destination: &TrafficDestination) -> (&'static str, String
     }
 }
 
-fn parse_destination(
-    kind: &str,
-    value: &str,
-) -> Result<TrafficDestination, TrafficPolicyError> {
+fn parse_destination(kind: &str, value: &str) -> Result<TrafficDestination, TrafficPolicyError> {
     match kind {
         "cidr" => Ok(TrafficDestination::Cidr(
             IpNetwork::from_str(value).map_err(|_| {
@@ -382,8 +454,6 @@ fn parse_destination(
         "ip" => Ok(TrafficDestination::Ip(IpAddr::from_str(value).map_err(|_| {
             TrafficPolicyError::InvalidStoredValue(format!("invalid IP {value}"))
         })?)),
-        _ => Err(TrafficPolicyError::InvalidStoredValue(format!(
-            "destination kind {kind}"
-        ))),
+        _ => Err(TrafficPolicyError::InvalidStoredValue(format!("destination kind {kind}"))),
     }
 }
