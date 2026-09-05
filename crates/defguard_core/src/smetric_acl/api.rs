@@ -17,7 +17,9 @@ use super::location_deployment::{
     PolicyLocationDeploymentStatus, ensure_desired as ensure_location_desired,
     list_for_policy as list_location_deployments_for_policy,
 };
-use super::location_effective::compile_location_firewall;
+use super::location_effective::{
+    EffectiveLocationFirewall, compile_location_firewall, compile_location_firewall_without_policy,
+};
 use super::service::{
     CreatePolicy, CreateRule, PolicySummary, PublishedPolicy, ServiceError, add_rule,
     create_policy, delete_policy, list_policies, load_policy, publish_policy, validate_policy,
@@ -118,8 +120,48 @@ pub async fn remove(
     _admin: AdminRole,
     State(state): State<AppState>,
     Path(policy_id): Path<i64>,
-) -> Result<StatusCode, ApiError> {
-    delete_policy(&state.pool, policy_id).await?;
+) -> Result<StatusCode, Response> {
+    // Ensure the policy exists before collecting assignment state.
+    load_policy(&state.pool, policy_id)
+        .await
+        .map_err(|error| ApiError(error).into_response())?;
+
+    // Capture every affected location before deletion because policy assignments cascade away with
+    // the policy row. Build all post-delete effective configs first so a translation failure cannot
+    // delete the policy and leave a gateway running stale rules.
+    let location_ids = sqlx::query_scalar::<_, i64>(
+        "SELECT DISTINCT location_id FROM smetric_acl_policy_assignment \
+         WHERE policy_id=$1 AND enabled=TRUE ORDER BY location_id",
+    )
+    .bind(policy_id)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|error| ApiError(ServiceError::Database(error)).into_response())?;
+
+    let mut replacements: Vec<EffectiveLocationFirewall> = Vec::with_capacity(location_ids.len());
+    for location_id in location_ids {
+        replacements.push(
+            compile_location_firewall_without_policy(&state.pool, location_id, policy_id)
+                .await
+                .map_err(gateway_error_response)?,
+        );
+    }
+
+    delete_policy(&state.pool, policy_id)
+        .await
+        .map_err(|error| ApiError(error).into_response())?;
+
+    for effective in replacements {
+        ensure_location_desired(&state.pool, effective.location_id, &effective.checksum)
+            .await
+            .map_err(|error| ApiError(ServiceError::Database(error)).into_response())?;
+        state.send_gateway_command(GatewayCommand::FirewallConfigChanged(
+            effective.location_id,
+            effective.config,
+        ));
+    }
+
+    notify_config_changed(format!("smetric_acl:policy:{policy_id}:deleted"));
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -179,9 +221,6 @@ pub async fn publish(
         let effective = compile_location_firewall(&state.pool, location_id)
             .await
             .map_err(gateway_error_response)?;
-        if effective.policy_ids.is_empty() {
-            continue;
-        }
 
         ensure_location_desired(&state.pool, location_id, &effective.checksum)
             .await
