@@ -1,13 +1,12 @@
-use defguard_common::{gateway_event::GatewayCommand, gateway_types::FirewallConfig};
+use defguard_common::gateway_event::GatewayCommand;
 use serde::Serialize;
-use sha256::digest;
 use sqlx::PgPool;
 use tokio::sync::broadcast::Sender;
 
 use super::{
-    compile,
-    gateway::{GatewayEnforcementError, translate_policy_for_location},
-    service::{ServiceError, load_policy},
+    gateway::GatewayEnforcementError,
+    location_deployment::{ensure_desired as ensure_location_desired, mark_error as mark_location_error},
+    location_effective::compile_location_firewall,
 };
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -36,8 +35,6 @@ pub struct DeploymentState {
 pub enum ReconcileError {
     #[error(transparent)]
     Database(#[from] sqlx::Error),
-    #[error(transparent)]
-    Service(#[from] ServiceError),
     #[error(transparent)]
     Gateway(#[from] GatewayEnforcementError),
     #[error("failed to queue reconciled firewall configuration for location {0}")]
@@ -121,68 +118,41 @@ pub async fn mark_error(
     Ok(result.rows_affected() == 1)
 }
 
+/// Reconcile a location against the gateway's authoritative effective firewall state.
+///
+/// Reconnects do not allocate a new generation when the effective checksum is unchanged. If the
+/// effective firewall changed while the gateway was offline, ensure_location_desired allocates a
+/// new location generation before the complete aggregated FirewallConfig is queued.
 pub async fn reconcile_location(
     pool: &PgPool,
     gateway_tx: &Sender<GatewayCommand>,
     location_id: i64,
 ) -> Result<usize, ReconcileError> {
-    let rows = sqlx::query_as::<_, (i64, i64, String)>(
-        "SELECT ds.policy_id, ds.desired_generation, ds.desired_checksum \
-         FROM smetric_acl_deployment_state ds \
-         JOIN smetric_acl_policy_assignment a \
-           ON a.policy_id = ds.policy_id AND a.location_id = ds.location_id \
-         JOIN smetric_acl_policy p ON p.id = ds.policy_id \
-         WHERE ds.location_id = $1 \
-           AND a.enabled = TRUE \
-           AND p.enabled = TRUE \
-           AND ds.applied_generation IS DISTINCT FROM ds.desired_generation \
-         ORDER BY ds.policy_id",
-    )
-    .bind(location_id)
-    .fetch_all(pool)
-    .await?;
-
-    let mut sent = 0usize;
-    for (policy_id, desired_generation, desired_checksum) in rows {
-        let policy = compile(load_policy(pool, policy_id).await?).map_err(ServiceError::Validation)?;
-        let config = translate_policy_for_location(pool, &policy, location_id).await?;
-        let effective_checksum = effective_config_checksum(&config);
-
-        let generation = if effective_checksum == desired_checksum {
-            desired_generation
-        } else {
-            record_desired(
-                pool,
-                policy_id,
-                location_id,
-                policy.revision,
-                &effective_checksum,
-            )
-            .await?
-        };
-
-        if gateway_tx
-            .send(GatewayCommand::FirewallConfigChanged(location_id, config))
-            .is_err()
-        {
-            let _ = mark_error(
-                pool,
-                policy_id,
-                location_id,
-                generation,
-                "gateway command channel is closed during reconnect reconciliation",
-            )
-            .await;
-            return Err(ReconcileError::GatewayChannelClosed(location_id));
-        }
-        sent += 1;
+    let effective = compile_location_firewall(pool, location_id).await?;
+    if effective.policy_ids.is_empty() {
+        return Ok(0);
     }
 
-    Ok(sent)
-}
+    let generation = ensure_location_desired(pool, location_id, &effective.checksum).await?;
 
-fn effective_config_checksum(config: &FirewallConfig) -> String {
-    digest(format!("{config:?}"))
+    if gateway_tx
+        .send(GatewayCommand::FirewallConfigChanged(
+            location_id,
+            effective.config,
+        ))
+        .is_err()
+    {
+        let _ = mark_location_error(
+            pool,
+            location_id,
+            generation,
+            "gateway command channel is closed during reconnect reconciliation",
+        )
+        .await;
+        return Err(ReconcileError::GatewayChannelClosed(location_id));
+    }
+
+    Ok(1)
 }
 
 pub async fn list_for_policy(
