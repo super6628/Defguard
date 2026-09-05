@@ -38,20 +38,32 @@ export const DeleteAliasDestinationConfirmModal = () => {
       },
     });
 
+  const isPending = deleteAliasPending || deleteDestinationPending;
+
   useEffect(() => {
     const openSub = subscribeOpenModal(modalNameValue, (data) => {
       setModalData(data);
       setOpen(true);
     });
-    const closeSub = subscribeCloseModal(modalNameValue, () => setOpen(false));
+    const closeSub = subscribeCloseModal(modalNameValue, () => {
+      if (!isPending) {
+        setOpen(false);
+      }
+    });
     return () => {
       openSub.unsubscribe();
       closeSub.unsubscribe();
     };
-  }, []);
+  }, [isPending]);
+
+  const closeModal = () => {
+    if (!isPending) {
+      setOpen(false);
+    }
+  };
 
   const handleDelete = async () => {
-    if (!modalData) return;
+    if (!modalData || isPending) return;
     try {
       if (modalData.target.kind === 'alias') {
         await deleteAlias(modalData.target.id);
@@ -70,15 +82,13 @@ export const DeleteAliasDestinationConfirmModal = () => {
     }
   };
 
-  const isPending = deleteAliasPending || deleteDestinationPending;
-
   return (
     <Modal
       id="delete-alias-destination-confirm-modal"
       title={modalData?.title ?? ''}
       size="small"
       isOpen={isOpen}
-      onClose={() => setOpen(false)}
+      onClose={closeModal}
       afterClose={() => setModalData(null)}
     >
       <AppText font={TextStyle.TBodySm400}>{modalData?.description ?? ''}</AppText>
@@ -87,7 +97,7 @@ export const DeleteAliasDestinationConfirmModal = () => {
           <Button
             variant="secondary"
             text={m.controls_cancel()}
-            onClick={() => setOpen(false)}
+            onClick={closeModal}
             disabled={isPending}
           />
           <Button
