@@ -86,6 +86,16 @@ pub async fn create(
 ) -> Result<(StatusCode, Json<TrafficPolicy>), ApiError> {
     let policy = create_policy(&state.pool, input).await?;
     notify_config_changed(format!("smetric_traffic_policy:{}:created", policy.id));
+    tracing::info!(
+        security_event = "smetric_traffic_policy_created",
+        policy_id = policy.id,
+        policy_name = %policy.name,
+        mode = ?policy.mode,
+        priority = policy.priority,
+        target_count = policy.targets.len(),
+        destination_count = policy.destinations.len(),
+        "S-Metric client traffic policy created"
+    );
     Ok((StatusCode::CREATED, Json(policy)))
 }
 
@@ -108,6 +118,17 @@ pub async fn update(
         "smetric_traffic_policy:{policy_id}:draft_revision:{}",
         policy.revision
     ));
+    tracing::info!(
+        security_event = "smetric_traffic_policy_updated",
+        policy_id,
+        revision = policy.revision,
+        policy_name = %policy.name,
+        mode = ?policy.mode,
+        priority = policy.priority,
+        target_count = policy.targets.len(),
+        destination_count = policy.destinations.len(),
+        "S-Metric client traffic policy draft updated"
+    );
     Ok(Json(policy))
 }
 
@@ -116,8 +137,16 @@ pub async fn remove(
     State(state): State<AppState>,
     Path(policy_id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
+    let policy = load_policy(&state.pool, policy_id).await?;
     delete_policy(&state.pool, policy_id).await?;
     notify_config_changed(format!("smetric_traffic_policy:{policy_id}:deleted"));
+    tracing::info!(
+        security_event = "smetric_traffic_policy_deleted",
+        policy_id,
+        policy_name = %policy.name,
+        revision = policy.revision,
+        "S-Metric client traffic policy deleted"
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -138,6 +167,13 @@ pub async fn set_policy_enabled(
         "smetric_traffic_policy:{policy_id}:enabled:{}",
         input.enabled
     ));
+    tracing::info!(
+        security_event = "smetric_traffic_policy_enabled_changed",
+        policy_id,
+        enabled = input.enabled,
+        revision = policy.revision,
+        "S-Metric client traffic policy enabled state changed"
+    );
     Ok(Json(policy))
 }
 
@@ -151,6 +187,13 @@ pub async fn publish(
         "smetric_traffic_policy:{policy_id}:revision:{}",
         published.revision
     ));
+    tracing::info!(
+        security_event = "smetric_traffic_policy_published",
+        policy_id,
+        revision = published.revision,
+        checksum = %published.checksum,
+        "S-Metric client traffic policy published"
+    );
     Ok(Json(published))
 }
 
