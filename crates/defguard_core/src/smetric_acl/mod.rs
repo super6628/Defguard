@@ -6,6 +6,8 @@ pub mod gateway;
 pub mod location_deployment;
 pub mod location_effective;
 pub mod service;
+#[path = "../smetric_traffic_policy.rs"]
+pub mod traffic_policy;
 
 use std::{fmt, net::IpAddr, str::FromStr};
 
