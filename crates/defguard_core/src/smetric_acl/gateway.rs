@@ -8,8 +8,10 @@ use defguard_common::{
     },
 };
 use ipnetwork::IpNetwork;
+use sha256::digest;
 use sqlx::PgPool;
 
+use super::deployment::record_desired;
 use super::service::{ServiceError, load_policy};
 use super::{Action, CompiledPolicy, DefaultAction, Destination, Protocol, Rule, Subject, compile};
 
@@ -46,7 +48,10 @@ pub enum GatewayEnforcementError {
 
 #[derive(Clone, Debug)]
 pub struct GatewayDeployment {
+    pub policy_id: i64,
     pub location_id: i64,
+    pub generation: i64,
+    pub effective_checksum: String,
     pub command: GatewayCommand,
 }
 
@@ -64,15 +69,44 @@ pub async fn prepare_deployments(
     if location_ids.is_empty() {
         return Err(GatewayEnforcementError::NoAssignments(policy_id));
     }
-    let mut deployments = Vec::with_capacity(location_ids.len());
+
+    // Resolve every effective location configuration before changing desired deployment state.
+    // This prevents a selector failure at a later location from leaving earlier locations marked
+    // as desired even though no gateway commands will be sent by the caller.
+    let mut prepared = Vec::with_capacity(location_ids.len());
     for location_id in location_ids {
         let config = translate_policy_for_location(pool, &policy, location_id).await?;
-        deployments.push(GatewayDeployment {
+        let effective_checksum = effective_config_checksum(&config);
+        prepared.push((location_id, config, effective_checksum));
+    }
+
+    let mut deployments = Vec::with_capacity(prepared.len());
+    for (location_id, config, effective_checksum) in prepared {
+        let generation = record_desired(
+            pool,
+            policy_id,
             location_id,
+            policy.revision,
+            &effective_checksum,
+        )
+        .await?;
+        deployments.push(GatewayDeployment {
+            policy_id,
+            location_id,
+            generation,
+            effective_checksum,
             command: GatewayCommand::FirewallConfigChanged(location_id, config),
         });
     }
     Ok(deployments)
+}
+
+fn effective_config_checksum(config: &FirewallConfig) -> String {
+    // Firewall gateway types are intentionally protocol-neutral and do not currently derive
+    // Serialize. Their Debug representation is deterministic for these enum/Vec based types,
+    // and captures resolved identity IPs, making this checksum change when effective policy
+    // membership changes even if the policy definition revision does not.
+    digest(format!("{config:?}"))
 }
 
 pub async fn translate_policy_for_location(
