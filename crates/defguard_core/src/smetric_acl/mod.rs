@@ -3,6 +3,7 @@ pub mod deployment;
 pub mod deployment_ack;
 pub mod device_groups;
 pub mod gateway;
+pub mod location_deployment;
 pub mod location_effective;
 pub mod service;
 
