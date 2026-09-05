@@ -1,6 +1,9 @@
 export type BrandConfig = {
   productName: string;
   companyName: string;
+  logoUrl?: string;
+  compactLogoUrl?: string;
+  faviconUrl?: string;
   supportEmail?: string;
   documentationUrl?: string;
   websiteUrl?: string;
@@ -26,6 +29,9 @@ const readEnv = (name: string): string | undefined => {
 export const brandConfig: BrandConfig = {
   productName: readEnv('VITE_BRAND_PRODUCT_NAME') ?? 'S-Metric Secure',
   companyName: readEnv('VITE_BRAND_COMPANY_NAME') ?? 'S-Metric',
+  logoUrl: readEnv('VITE_BRAND_LOGO_URL'),
+  compactLogoUrl: readEnv('VITE_BRAND_COMPACT_LOGO_URL'),
+  faviconUrl: readEnv('VITE_BRAND_FAVICON_URL'),
   supportEmail: readEnv('VITE_BRAND_SUPPORT_EMAIL'),
   documentationUrl: readEnv('VITE_BRAND_DOCUMENTATION_URL'),
   websiteUrl: readEnv('VITE_BRAND_WEBSITE_URL'),
