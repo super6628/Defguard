@@ -11,7 +11,14 @@ export const LoginPage = ({ children, id }: PropsWithChildren & { id?: string })
   return (
     <div id="login-page">
       <aside>
-        <img src={loginImage} loading="eager" decoding="async" width={844} height={999} />
+        <img
+          src={branding.loginImageUrl || loginImage}
+          alt=""
+          loading="eager"
+          decoding="async"
+          width={844}
+          height={999}
+        />
       </aside>
       <div className="main-track">
         <main id={id}>
