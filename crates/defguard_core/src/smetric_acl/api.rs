@@ -11,6 +11,7 @@ use crate::{
     appstate::AppState, auth::AdminRole, grpc::smetric_config_sync::notify_config_changed,
 };
 
+use super::deployment::{DeploymentState, list_for_policy};
 use super::gateway::{GatewayEnforcementError, prepare_deployments};
 use super::service::{
     CreatePolicy, CreateRule, PolicySummary, PublishedPolicy, ServiceError, add_rule,
@@ -25,6 +26,10 @@ pub fn router() -> Router<AppState> {
         .route("/policies/{policy_id}/rules", post(create_rule))
         .route("/policies/{policy_id}/validate", post(validate))
         .route("/policies/{policy_id}/publish", post(publish))
+        .route(
+            "/policies/{policy_id}/deployments",
+            route_get(deployment_status),
+        )
         .merge(super::device_groups::router())
 }
 
@@ -128,6 +133,21 @@ pub async fn validate(
     Path(policy_id): Path<i64>,
 ) -> Result<Json<Policy>, ApiError> {
     Ok(Json(validate_policy(&state.pool, policy_id).await?))
+}
+
+pub async fn deployment_status(
+    _admin: AdminRole,
+    State(state): State<AppState>,
+    Path(policy_id): Path<i64>,
+) -> Result<Json<Vec<DeploymentState>>, Response> {
+    // Distinguish a missing policy from a valid policy that has never been deployed.
+    load_policy(&state.pool, policy_id)
+        .await
+        .map_err(|error| ApiError(error).into_response())?;
+    let deployments = list_for_policy(&state.pool, policy_id)
+        .await
+        .map_err(|error| ApiError(ServiceError::Database(error)).into_response())?;
+    Ok(Json(deployments))
 }
 
 pub async fn publish(
