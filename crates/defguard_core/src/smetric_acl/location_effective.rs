@@ -10,7 +10,7 @@ use sqlx::PgPool;
 
 use super::{
     DefaultAction, compile,
-    gateway::{GatewayEnforcementError, translate_policy_for_location},
+    gateway::{GatewayEnforcementError, resolve_snat_bindings, translate_policy_for_location},
     service::{ServiceError, load_policy},
 };
 
@@ -70,12 +70,17 @@ pub async fn compile_location_firewall(
         }
     }
 
-    // SNAT belongs to the location rather than to an individual ACL policy. If no S-Metric policy
-    // is active there is no firewall update to send, so an empty value is appropriate here.
+    // SNAT belongs to the location rather than to an individual ACL policy. It must therefore be
+    // present even when the last S-Metric ACL policy disappears: the resulting empty/ALLOW config
+    // is the authoritative replacement that clears stale ACL rules without clearing SNAT.
+    let snat_bindings = match snat_bindings {
+        Some(bindings) => bindings,
+        None => resolve_snat_bindings(pool, location_id).await?,
+    };
     let config = FirewallConfig {
         default_policy,
         rules,
-        snat_bindings: snat_bindings.unwrap_or_default(),
+        snat_bindings,
     };
     let checksum = digest(format!("{config:?}"));
 
