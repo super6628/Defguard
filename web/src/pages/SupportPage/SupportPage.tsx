@@ -57,6 +57,12 @@ const PageContent = () => {
 
   const documentationUrl = brandConfig.documentationUrl ?? externalLink.defguard.docs;
   const supportEmail = brandConfig.supportEmail ?? 'support@defguard.net';
+  const bugReportUrl = brandConfig.bugReportUrl ?? externalLink.github.bugReport;
+  const featureRequestUrl = brandConfig.featureRequestUrl ?? externalLink.github.featureRequest;
+  const supportTicketUrl = brandConfig.supportTicketUrl
+    ? `${brandConfig.supportTicketUrl}${licenseInfo?.customer_id ?? ''}`
+    : `${externalLink.defguard.openTicket}${licenseInfo?.customer_id ?? ''}`;
+  const scheduleCallUrl = brandConfig.scheduleCallUrl ?? externalLink.defguard.scheduleCall;
 
   return (
     <SettingsCard>
@@ -99,9 +105,7 @@ const PageContent = () => {
             variant="secondary"
             text={m.support_page_bug_btn_report()}
             iconLeft="github"
-            onClick={() =>
-              window.open(externalLink.github.bugReport, '_blank', 'noopener,noreferrer')
-            }
+            onClick={() => window.open(bugReportUrl, '_blank', 'noopener,noreferrer')}
           />
           <ButtonMenu
             variant="outlined"
@@ -139,13 +143,7 @@ const PageContent = () => {
             variant="secondary"
             text={m.support_page_feature_btn()}
             iconLeft="github"
-            onClick={() =>
-              window.open(
-                externalLink.github.featureRequest,
-                '_blank',
-                'noopener,noreferrer',
-              )
-            }
+            onClick={() => window.open(featureRequestUrl, '_blank', 'noopener,noreferrer')}
           />
         </ButtonsGroup>
       </MarkedSection>
@@ -177,25 +175,13 @@ const PageContent = () => {
                 variant="outlined"
                 text={m.support_page_assistance_btn_ticket()}
                 iconRight="open-in-new-window"
-                onClick={() =>
-                  window.open(
-                    externalLink.defguard.openTicket + licenseInfo?.customer_id,
-                    '_blank',
-                    'noopener,noreferrer',
-                  )
-                }
+                onClick={() => window.open(supportTicketUrl, '_blank', 'noopener,noreferrer')}
               />
               <Button
                 variant="outlined"
                 text={m.support_page_assistance_btn_call()}
                 iconRight="calendar"
-                onClick={() =>
-                  window.open(
-                    externalLink.defguard.scheduleCall,
-                    '_blank',
-                    'noopener,noreferrer',
-                  )
-                }
+                onClick={() => window.open(scheduleCallUrl, '_blank', 'noopener,noreferrer')}
               />
             </ButtonsGroup>
           </MarkedSection>
