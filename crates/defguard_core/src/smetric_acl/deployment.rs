@@ -1,6 +1,14 @@
 use serde::Serialize;
 use sqlx::PgPool;
 
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeploymentStatus {
+    Pending,
+    Applied,
+    Failed,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct DeploymentState {
     pub policy_id: i64,
@@ -10,6 +18,7 @@ pub struct DeploymentState {
     pub desired_checksum: String,
     pub applied_generation: Option<i64>,
     pub last_error: Option<String>,
+    pub status: DeploymentStatus,
 }
 
 pub async fn record_desired(
@@ -100,14 +109,24 @@ pub async fn list_for_policy(
     .await?;
     Ok(rows
         .into_iter()
-        .map(|row| DeploymentState {
-            policy_id: row.0,
-            location_id: row.1,
-            desired_generation: row.2,
-            desired_policy_revision: row.3,
-            desired_checksum: row.4,
-            applied_generation: row.5,
-            last_error: row.6,
+        .map(|row| {
+            let status = if row.6.is_some() {
+                DeploymentStatus::Failed
+            } else if row.5 == Some(row.2) {
+                DeploymentStatus::Applied
+            } else {
+                DeploymentStatus::Pending
+            };
+            DeploymentState {
+                policy_id: row.0,
+                location_id: row.1,
+                desired_generation: row.2,
+                desired_policy_revision: row.3,
+                desired_checksum: row.4,
+                applied_generation: row.5,
+                last_error: row.6,
+                status,
+            }
         })
         .collect())
 }
