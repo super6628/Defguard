@@ -30,13 +30,6 @@ pub enum GatewayEnforcementError {
         location_id: i64,
     },
     #[error(
-        "rule {rule_id} uses source selector '{selector}', which is not yet supported by gateway enforcement"
-    )]
-    UnsupportedSourceSelector {
-        rule_id: i64,
-        selector: &'static str,
-    },
-    #[error(
         "rule {rule_id} uses destination selector '{selector}', which is not yet supported by gateway enforcement"
     )]
     UnsupportedDestinationSelector {
@@ -62,8 +55,12 @@ pub async fn prepare_deployments(
     policy_id: i64,
 ) -> Result<Vec<GatewayDeployment>, GatewayEnforcementError> {
     let policy = compile(load_policy(pool, policy_id).await?).map_err(ServiceError::Validation)?;
-    let location_ids = sqlx::query_scalar::<_, i64>("SELECT location_id FROM smetric_acl_policy_assignment WHERE policy_id = $1 AND enabled = TRUE ORDER BY location_id")
-        .bind(policy_id).fetch_all(pool).await?;
+    let location_ids = sqlx::query_scalar::<_, i64>(
+        "SELECT location_id FROM smetric_acl_policy_assignment WHERE policy_id = $1 AND enabled = TRUE ORDER BY location_id",
+    )
+    .bind(policy_id)
+    .fetch_all(pool)
+    .await?;
     if location_ids.is_empty() {
         return Err(GatewayEnforcementError::NoAssignments(policy_id));
     }
@@ -174,14 +171,18 @@ async fn translate_source(
             format!("device:{device_name}"),
             resolve_device_ips(pool, location_id, device_name).await?,
         ),
-        Subject::DeviceGroup(_) => Err(GatewayEnforcementError::UnsupportedSourceSelector {
-            rule_id: rule.id,
-            selector: "device_group",
-        }),
-        Subject::Location(_) => Err(GatewayEnforcementError::UnsupportedSourceSelector {
-            rule_id: rule.id,
-            selector: "location",
-        }),
+        Subject::DeviceGroup(group_name) => resolved_source(
+            rule.id,
+            location_id,
+            format!("device_group:{group_name}"),
+            resolve_device_group_ips(pool, location_id, group_name).await?,
+        ),
+        Subject::Location(location_name) => resolved_source(
+            rule.id,
+            location_id,
+            format!("location:{location_name}"),
+            resolve_location_ips(pool, location_id, location_name).await?,
+        ),
     }
 }
 
@@ -190,8 +191,13 @@ async fn resolve_user_ips(
     location_id: i64,
     username: &str,
 ) -> Result<Vec<IpAddr>, sqlx::Error> {
-    sqlx::query_scalar::<_, IpAddr>("SELECT DISTINCT unnest(wnd.wireguard_ips)::inet FROM wireguard_network_device wnd JOIN device d ON d.id = wnd.device_id JOIN \"user\" u ON u.id = d.user_id WHERE wnd.wireguard_network_id = $1 AND u.username = $2 AND u.is_active = TRUE AND d.configured = TRUE ORDER BY 1")
-        .bind(location_id).bind(username).fetch_all(pool).await
+    sqlx::query_scalar::<_, IpAddr>(
+        "SELECT DISTINCT unnest(wnd.wireguard_ips)::inet FROM wireguard_network_device wnd JOIN device d ON d.id = wnd.device_id JOIN \"user\" u ON u.id = d.user_id WHERE wnd.wireguard_network_id = $1 AND u.username = $2 AND u.is_active = TRUE AND d.configured = TRUE ORDER BY 1",
+    )
+    .bind(location_id)
+    .bind(username)
+    .fetch_all(pool)
+    .await
 }
 
 async fn resolve_group_ips(
@@ -199,8 +205,13 @@ async fn resolve_group_ips(
     location_id: i64,
     group_name: &str,
 ) -> Result<Vec<IpAddr>, sqlx::Error> {
-    sqlx::query_scalar::<_, IpAddr>("SELECT DISTINCT unnest(wnd.wireguard_ips)::inet FROM wireguard_network_device wnd JOIN device d ON d.id = wnd.device_id JOIN \"user\" u ON u.id = d.user_id JOIN group_user gu ON gu.user_id = u.id JOIN \"group\" g ON g.id = gu.group_id WHERE wnd.wireguard_network_id = $1 AND g.name = $2 AND u.is_active = TRUE AND d.configured = TRUE ORDER BY 1")
-        .bind(location_id).bind(group_name).fetch_all(pool).await
+    sqlx::query_scalar::<_, IpAddr>(
+        "SELECT DISTINCT unnest(wnd.wireguard_ips)::inet FROM wireguard_network_device wnd JOIN device d ON d.id = wnd.device_id JOIN \"user\" u ON u.id = d.user_id JOIN group_user gu ON gu.user_id = u.id JOIN \"group\" g ON g.id = gu.group_id WHERE wnd.wireguard_network_id = $1 AND g.name = $2 AND u.is_active = TRUE AND d.configured = TRUE ORDER BY 1",
+    )
+    .bind(location_id)
+    .bind(group_name)
+    .fetch_all(pool)
+    .await
 }
 
 async fn resolve_device_ips(
@@ -208,8 +219,41 @@ async fn resolve_device_ips(
     location_id: i64,
     device_name: &str,
 ) -> Result<Vec<IpAddr>, sqlx::Error> {
-    sqlx::query_scalar::<_, IpAddr>("SELECT DISTINCT unnest(wnd.wireguard_ips)::inet FROM wireguard_network_device wnd JOIN device d ON d.id = wnd.device_id WHERE wnd.wireguard_network_id = $1 AND d.name = $2 AND d.configured = TRUE ORDER BY 1")
-        .bind(location_id).bind(device_name).fetch_all(pool).await
+    sqlx::query_scalar::<_, IpAddr>(
+        "SELECT DISTINCT unnest(wnd.wireguard_ips)::inet FROM wireguard_network_device wnd JOIN device d ON d.id = wnd.device_id WHERE wnd.wireguard_network_id = $1 AND d.name = $2 AND d.configured = TRUE ORDER BY 1",
+    )
+    .bind(location_id)
+    .bind(device_name)
+    .fetch_all(pool)
+    .await
+}
+
+async fn resolve_device_group_ips(
+    pool: &PgPool,
+    location_id: i64,
+    group_name: &str,
+) -> Result<Vec<IpAddr>, sqlx::Error> {
+    sqlx::query_scalar::<_, IpAddr>(
+        "SELECT DISTINCT unnest(wnd.wireguard_ips)::inet FROM smetric_acl_device_group dg JOIN smetric_acl_device_group_member dgm ON dgm.group_id = dg.id JOIN device d ON d.id = dgm.device_id JOIN wireguard_network_device wnd ON wnd.device_id = d.id WHERE dg.name = $1 AND dg.enabled = TRUE AND d.configured = TRUE AND wnd.wireguard_network_id = $2 ORDER BY 1",
+    )
+    .bind(group_name)
+    .bind(location_id)
+    .fetch_all(pool)
+    .await
+}
+
+async fn resolve_location_ips(
+    pool: &PgPool,
+    deployment_location_id: i64,
+    location_name: &str,
+) -> Result<Vec<IpAddr>, sqlx::Error> {
+    sqlx::query_scalar::<_, IpAddr>(
+        "SELECT DISTINCT unnest(wnd.wireguard_ips)::inet FROM wireguard_network wn JOIN wireguard_network_device wnd ON wnd.wireguard_network_id = wn.id JOIN device d ON d.id = wnd.device_id WHERE wn.id = $1 AND wn.name = $2 AND d.configured = TRUE ORDER BY 1",
+    )
+    .bind(deployment_location_id)
+    .bind(location_name)
+    .fetch_all(pool)
+    .await
 }
 
 fn resolved_source(
@@ -289,6 +333,7 @@ fn network_version(network: IpNetwork) -> IpVersion {
         IpVersion::Ipv6
     }
 }
+
 fn ip_version(ip: IpAddr) -> IpVersion {
     if ip.is_ipv4() {
         IpVersion::Ipv4
@@ -296,6 +341,7 @@ fn ip_version(ip: IpAddr) -> IpVersion {
         IpVersion::Ipv6
     }
 }
+
 fn merge_ip_versions(
     rule_id: i64,
     left: IpVersion,
