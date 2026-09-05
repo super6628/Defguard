@@ -7,6 +7,7 @@ pub enum DeploymentStatus {
     Pending,
     Applied,
     Failed,
+    GatewayOffline,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -18,6 +19,7 @@ pub struct DeploymentState {
     pub desired_checksum: String,
     pub applied_generation: Option<i64>,
     pub last_error: Option<String>,
+    pub gateway_online: bool,
     pub status: DeploymentStatus,
 }
 
@@ -102,9 +104,18 @@ pub async fn list_for_policy(
     pool: &PgPool,
     policy_id: i64,
 ) -> Result<Vec<DeploymentState>, sqlx::Error> {
-    let rows = sqlx::query_as::<_, (i64, i64, i64, i64, String, Option<i64>, Option<String>)>(
-        "SELECT policy_id, location_id, desired_generation, desired_policy_revision, desired_checksum, applied_generation, last_error \
-         FROM smetric_acl_deployment_state WHERE policy_id=$1 ORDER BY location_id",
+    let rows = sqlx::query_as::<_, (i64, i64, i64, i64, String, Option<i64>, Option<String>, bool)>(
+        "SELECT ds.policy_id, ds.location_id, ds.desired_generation, ds.desired_policy_revision, \
+                ds.desired_checksum, ds.applied_generation, ds.last_error, \
+                EXISTS ( \
+                    SELECT 1 FROM gateway g \
+                    WHERE g.location_id = ds.location_id \
+                      AND g.enabled = TRUE \
+                      AND g.connected_at IS NOT NULL \
+                      AND (g.disconnected_at IS NULL OR g.disconnected_at <= g.connected_at) \
+                ) AS gateway_online \
+         FROM smetric_acl_deployment_state ds \
+         WHERE ds.policy_id=$1 ORDER BY ds.location_id",
     )
     .bind(policy_id)
     .fetch_all(pool)
@@ -116,6 +127,8 @@ pub async fn list_for_policy(
                 DeploymentStatus::Applied
             } else if row.6.is_some() {
                 DeploymentStatus::Failed
+            } else if !row.7 {
+                DeploymentStatus::GatewayOffline
             } else {
                 DeploymentStatus::Pending
             };
@@ -127,6 +140,7 @@ pub async fn list_for_policy(
                 desired_checksum: row.4,
                 applied_generation: row.5,
                 last_error: row.6,
+                gateway_online: row.7,
                 status,
             }
         })
