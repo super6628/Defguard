@@ -163,6 +163,34 @@ impl EditAclRule {
             ));
         }
 
+        if self
+            .allowed_users
+            .iter()
+            .any(|id| self.denied_users.contains(id))
+        {
+            return Err(WebError::BadRequest(
+                "A user cannot be both allowed and denied in the same rule".to_owned(),
+            ));
+        }
+        if self
+            .allowed_groups
+            .iter()
+            .any(|id| self.denied_groups.contains(id))
+        {
+            return Err(WebError::BadRequest(
+                "A group cannot be both allowed and denied in the same rule".to_owned(),
+            ));
+        }
+        if self
+            .allowed_network_devices
+            .iter()
+            .any(|id| self.denied_network_devices.contains(id))
+        {
+            return Err(WebError::BadRequest(
+                "A network device cannot be both allowed and denied in the same rule".to_owned(),
+            ));
+        }
+
         if self.use_manual_destination_settings {
             // Determine what the selected component aliases collectively contribute.
             // Note: Component-kind aliases always have any_address/any_port/any_protocol = false,
