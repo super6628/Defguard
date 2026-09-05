@@ -7,7 +7,7 @@ window.__WHITE_LABEL__ = {
   copyrightName: 'S-Metric',
   supportEmail: '',
   supportUrl: '',
-  documentationUrl: 'https://docs.defguard.net/',
+  documentationUrl: '',
   logoUrl: '',
   navLogoUrl: '',
   logoDarkUrl: '',
