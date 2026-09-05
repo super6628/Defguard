@@ -1,10 +1,11 @@
 use std::str::FromStr;
 
+use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Transaction};
 
 use super::{
     Action, DefaultAction, Destination, Policy, PortRange, Protocol, Rule, Subject,
-    ValidationError, compile,
+    ValidationError, compile, validate,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -132,8 +133,8 @@ pub async fn add_rule(
 }
 
 pub async fn load_policy(pool: &PgPool, policy_id: i64) -> Result<Policy, ServiceError> {
-    let row = sqlx::query_as::<_, (i64, String, String, i64)>(
-        "SELECT id, name, default_action, revision FROM smetric_acl_policy WHERE id = $1",
+    let row = sqlx::query_as::<_, (i64, String, Option<String>, bool, String, i64)>(
+        "SELECT id, name, description, enabled, default_action, revision FROM smetric_acl_policy WHERE id = $1",
     )
     .bind(policy_id)
     .fetch_optional(pool)
@@ -151,16 +152,18 @@ pub async fn load_policy(pool: &PgPool, policy_id: i64) -> Result<Policy, Servic
     Ok(Policy {
         id: row.0,
         name: row.1,
-        revision: u64::try_from(row.3)
+        description: row.2,
+        enabled: row.3,
+        default_action: parse_default_action(&row.4)?,
+        revision: u64::try_from(row.5)
             .map_err(|_| ServiceError::InvalidStoredValue("negative revision".into()))?,
-        default_action: parse_default_action(&row.2)?,
         rules,
     })
 }
 
 pub async fn validate_policy(pool: &PgPool, policy_id: i64) -> Result<Policy, ServiceError> {
     let policy = load_policy(pool, policy_id).await?;
-    policy.validate()?;
+    validate(&policy)?;
     Ok(policy)
 }
 
@@ -359,11 +362,13 @@ fn rule_from_row(
         Option<String>,
     ),
 ) -> Result<Rule, ServiceError> {
+    if row.2 < 0 {
+        return Err(ServiceError::InvalidStoredValue("negative priority".into()));
+    }
     Ok(Rule {
         id: row.0,
         name: row.1,
-        priority: u32::try_from(row.2)
-            .map_err(|_| ServiceError::InvalidStoredValue("negative priority".into()))?,
+        priority: row.2,
         enabled: row.3,
         action: parse_action(&row.4)?,
         protocol: parse_protocol(&row.5)?,
