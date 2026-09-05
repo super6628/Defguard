@@ -9,13 +9,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::{appstate::AppState, auth::AdminRole};
 
-use super::deployment::{mark_applied, mark_error};
+use super::location_deployment::{get, mark_applied, mark_error};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct DeploymentAcknowledgement {
-    pub policy_id: i64,
     pub location_id: i64,
     pub generation: i64,
+    pub checksum: String,
     pub success: bool,
     pub error: Option<String>,
 }
@@ -34,7 +34,8 @@ pub async fn acknowledge(
     State(state): State<AppState>,
     Json(input): Json<DeploymentAcknowledgement>,
 ) -> Result<Json<DeploymentAcknowledgementResult>, Response> {
-    if input.policy_id <= 0 || input.location_id <= 0 || input.generation <= 0 {
+    let checksum = input.checksum.trim();
+    if input.location_id <= 0 || input.generation <= 0 || checksum.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "invalid deployment acknowledgement").into_response());
     }
 
@@ -46,12 +47,31 @@ pub async fn acknowledge(
             .into_response());
     }
 
+    // Bind both generation and checksum to the current desired location state. This prevents a
+    // stale gateway response from acknowledging a newer aggregate configuration that happens to
+    // share the same location id.
+    let desired = get(&state.pool, input.location_id)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to load desired deployment state: {error}"),
+            )
+                .into_response()
+        })?;
+    let Some(desired) = desired else {
+        return Ok(Json(DeploymentAcknowledgementResult { accepted: false }));
+    };
+    if desired.desired_generation != input.generation || desired.desired_checksum != checksum {
+        return Ok(Json(DeploymentAcknowledgementResult { accepted: false }));
+    }
+
     let accepted = if input.success {
         mark_applied(
             &state.pool,
-            input.policy_id,
             input.location_id,
             input.generation,
+            checksum,
         )
         .await
     } else {
@@ -67,14 +87,7 @@ pub async fn acknowledge(
                 )
                     .into_response()
             })?;
-        mark_error(
-            &state.pool,
-            input.policy_id,
-            input.location_id,
-            input.generation,
-            error,
-        )
-        .await
+        mark_error(&state.pool, input.location_id, input.generation, error).await
     }
     .map_err(|error| {
         (
@@ -84,7 +97,5 @@ pub async fn acknowledge(
             .into_response()
     })?;
 
-    // A stale or unknown generation is intentionally not treated as a server error. The caller
-    // receives accepted=false and can reconcile against the current desired generation.
     Ok(Json(DeploymentAcknowledgementResult { accepted }))
 }
