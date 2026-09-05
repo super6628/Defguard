@@ -22,8 +22,12 @@ pub enum TrafficPolicyError {
     InvalidStoredValue(String),
     #[error("client traffic policy name cannot be empty")]
     EmptyName,
+    #[error("client traffic policy requires at least one target")]
+    MissingTargets,
     #[error("split-tunnel and bypass policies require at least one destination")]
     MissingDestinations,
+    #[error("client traffic policy target {0} does not exist")]
+    TargetNotFound(String),
     #[error("client traffic policy {0} has never been published")]
     NeverPublished(i64),
 }
@@ -55,6 +59,8 @@ pub async fn create_policy(
     input: CreateTrafficPolicy,
 ) -> Result<TrafficPolicy, TrafficPolicyError> {
     validate_input(&input)?;
+    validate_targets(pool, &input.targets).await?;
+
     let mut tx = pool.begin().await?;
     let row = sqlx::query_as::<_, PolicyRow>(
         "INSERT INTO smetric_traffic_policy (name, description, enabled, mode, priority) \
@@ -80,14 +86,17 @@ pub async fn update_policy(
     input: UpdateTrafficPolicy,
 ) -> Result<TrafficPolicy, TrafficPolicyError> {
     validate_input(&input)?;
+    validate_targets(pool, &input.targets).await?;
+
     let mut tx = pool.begin().await?;
     let result = sqlx::query(
-        "UPDATE smetric_traffic_policy SET name=$2,description=$3,mode=$4,priority=$5, \
+        "UPDATE smetric_traffic_policy SET name=$2,description=$3,enabled=$4,mode=$5,priority=$6, \
          revision=revision+1,updated_at=NOW() WHERE id=$1",
     )
     .bind(policy_id)
     .bind(input.name.trim())
     .bind(input.description)
+    .bind(input.enabled)
     .bind(mode_str(input.mode))
     .bind(priority_i32(input.priority)?)
     .execute(&mut *tx)
@@ -106,11 +115,6 @@ pub async fn update_policy(
     replace_targets(&mut tx, policy_id, &input.targets).await?;
     replace_destinations(&mut tx, policy_id, &input.destinations).await?;
     tx.commit().await?;
-    if input.enabled {
-        set_enabled(pool, policy_id, true).await?;
-    } else {
-        set_enabled(pool, policy_id, false).await?;
-    }
     load_policy(pool, policy_id).await
 }
 
@@ -198,6 +202,8 @@ pub async fn publish_policy(
 ) -> Result<PublishedTrafficPolicy, TrafficPolicyError> {
     let policy = load_policy(pool, policy_id).await?;
     validate_policy(&policy)?;
+    validate_targets(pool, &policy.targets).await?;
+
     let serialized = serde_json::to_string(&policy)
         .map_err(|error| TrafficPolicyError::InvalidStoredValue(error.to_string()))?;
     let checksum = digest(&serialized);
@@ -268,6 +274,57 @@ pub async fn effective_for_device(
         }
     }
     Ok(resolve_effective_policy(matches).map(EffectiveTrafficPolicy::from))
+}
+
+async fn validate_targets(
+    pool: &PgPool,
+    targets: &[TrafficTarget],
+) -> Result<(), TrafficPolicyError> {
+    for target in targets {
+        let (exists, label) = match target {
+            TrafficTarget::Global => (true, "global".to_owned()),
+            TrafficTarget::Location(id) => (
+                sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS(SELECT 1 FROM wireguard_network WHERE id=$1)",
+                )
+                .bind(id)
+                .fetch_one(pool)
+                .await?,
+                format!("location:{id}"),
+            ),
+            TrafficTarget::Group(id) => (
+                sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS(SELECT 1 FROM \"group\" WHERE id=$1)",
+                )
+                .bind(id)
+                .fetch_one(pool)
+                .await?,
+                format!("group:{id}"),
+            ),
+            TrafficTarget::User(id) => (
+                sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS(SELECT 1 FROM \"user\" WHERE id=$1)",
+                )
+                .bind(id)
+                .fetch_one(pool)
+                .await?,
+                format!("user:{id}"),
+            ),
+            TrafficTarget::Device(id) => (
+                sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS(SELECT 1 FROM device WHERE id=$1)",
+                )
+                .bind(id)
+                .fetch_one(pool)
+                .await?,
+                format!("device:{id}"),
+            ),
+        };
+        if !exists {
+            return Err(TrafficPolicyError::TargetNotFound(label));
+        }
+    }
+    Ok(())
 }
 
 fn target_matches(
@@ -370,6 +427,9 @@ fn validate_input(input: &CreateTrafficPolicy) -> Result<(), TrafficPolicyError>
     if input.name.trim().is_empty() {
         return Err(TrafficPolicyError::EmptyName);
     }
+    if input.targets.is_empty() {
+        return Err(TrafficPolicyError::MissingTargets);
+    }
     if !matches!(input.mode, TrafficMode::FullTunnel) && input.destinations.is_empty() {
         return Err(TrafficPolicyError::MissingDestinations);
     }
@@ -379,6 +439,9 @@ fn validate_input(input: &CreateTrafficPolicy) -> Result<(), TrafficPolicyError>
 fn validate_policy(policy: &TrafficPolicy) -> Result<(), TrafficPolicyError> {
     if policy.name.trim().is_empty() {
         return Err(TrafficPolicyError::EmptyName);
+    }
+    if policy.targets.is_empty() {
+        return Err(TrafficPolicyError::MissingTargets);
     }
     if !matches!(policy.mode, TrafficMode::FullTunnel) && policy.destinations.is_empty() {
         return Err(TrafficPolicyError::MissingDestinations);
