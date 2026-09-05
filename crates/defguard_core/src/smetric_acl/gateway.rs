@@ -60,7 +60,7 @@ pub async fn translate_policy_for_location(
     })
 }
 
-async fn resolve_snat_bindings(
+pub async fn resolve_snat_bindings(
     pool: &PgPool,
     location_id: i64,
 ) -> Result<Vec<SnatBinding>, sqlx::Error> {
