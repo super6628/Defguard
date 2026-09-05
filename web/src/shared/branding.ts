@@ -4,6 +4,10 @@ export type BrandConfig = {
   supportEmail?: string;
   documentationUrl?: string;
   websiteUrl?: string;
+  bugReportUrl?: string;
+  featureRequestUrl?: string;
+  supportTicketUrl?: string;
+  scheduleCallUrl?: string;
 };
 
 const readEnv = (name: string): string | undefined => {
@@ -25,4 +29,8 @@ export const brandConfig: BrandConfig = {
   supportEmail: readEnv('VITE_BRAND_SUPPORT_EMAIL'),
   documentationUrl: readEnv('VITE_BRAND_DOCUMENTATION_URL'),
   websiteUrl: readEnv('VITE_BRAND_WEBSITE_URL'),
+  bugReportUrl: readEnv('VITE_BRAND_BUG_REPORT_URL'),
+  featureRequestUrl: readEnv('VITE_BRAND_FEATURE_REQUEST_URL'),
+  supportTicketUrl: readEnv('VITE_BRAND_SUPPORT_TICKET_URL'),
+  scheduleCallUrl: readEnv('VITE_BRAND_SCHEDULE_CALL_URL'),
 };
