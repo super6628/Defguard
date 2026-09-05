@@ -22,17 +22,15 @@ pub enum ReconcileError {
 ///
 /// Reconnects do not allocate a new generation when the effective checksum is unchanged. If the
 /// effective firewall changed while the gateway was offline, ensure_location_desired allocates a
-/// new location generation before the complete aggregated FirewallConfig is queued.
+/// new location generation before the complete aggregated FirewallConfig is queued. Locations with
+/// no active S-Metric policies are still reconciled: the compiler emits an allow-by-default,
+/// rule-empty configuration while preserving location SNAT, which clears stale S-Metric ACLs.
 pub async fn reconcile_location(
     pool: &PgPool,
     gateway_tx: &Sender<GatewayCommand>,
     location_id: i64,
 ) -> Result<usize, ReconcileError> {
     let effective = compile_location_firewall(pool, location_id).await?;
-    if effective.policy_ids.is_empty() {
-        return Ok(0);
-    }
-
     let generation = ensure_location_desired(pool, location_id, &effective.checksum).await?;
 
     if gateway_tx
