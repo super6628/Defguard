@@ -121,7 +121,7 @@ pub async fn update_rule(
     input: UpdateRule,
 ) -> Result<Rule, ServiceError> {
     if input.name.trim().is_empty() {
-        return Err(ValidationError::EmptyRuleName.into());
+        return Err(ValidationError::EmptyRuleName(rule_id).into());
     }
     let mut tx = pool.begin().await?;
     ensure_policy(&mut tx, policy_id).await?;
@@ -180,7 +180,7 @@ async fn write_rule_insert(
     input: CreateRule,
 ) -> Result<(i64, String, i32, bool, String, String, Option<String>, String, Option<String>, String, Option<String>), ServiceError> {
     if input.name.trim().is_empty() {
-        return Err(ValidationError::EmptyRuleName.into());
+        return Err(ValidationError::EmptyRuleName(0).into());
     }
     let (source_kind, source_value) = encode_subject(&input.source);
     let (destination_kind, destination_value) = encode_destination(&input.destination);
