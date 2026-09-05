@@ -281,22 +281,29 @@ export const CEDestinationPage = ({ destination, tab }: Props) => {
             </form.Subscribe>
           </MarkedSection>
           <SizedBox height={ThemeSpacing.Xl2} />
-          <Controls>
-            <div className="right">
-              <Button
-                text={m.controls_cancel()}
-                variant="secondary"
-                onClick={() => {
-                  returnToDestinations();
-                }}
-              />
-              <Button
-                variant="primary"
-                text={isEdit ? m.controls_save_changes() : m.controls_add_destination()}
-                type="submit"
-              />
-            </div>
-          </Controls>
+          <form.Subscribe selector={(s) => s.isSubmitting}>
+            {(isSubmitting) => (
+              <Controls>
+                <div className="right">
+                  <Button
+                    text={m.controls_cancel()}
+                    variant="secondary"
+                    disabled={isSubmitting}
+                    onClick={() => {
+                      returnToDestinations();
+                    }}
+                  />
+                  <Button
+                    variant="primary"
+                    text={isEdit ? m.controls_save_changes() : m.controls_add_destination()}
+                    type="submit"
+                    loading={isSubmitting}
+                    disabled={isSubmitting}
+                  />
+                </div>
+              </Controls>
+            )}
+          </form.Subscribe>
         </form>
       </form.AppForm>
     </EditPage>
