@@ -132,6 +132,7 @@ pub struct DispatchStats {
     pub claimed: usize,
     pub delivered: usize,
     pub failed: usize,
+    pub stale: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -159,6 +160,13 @@ pub enum DispatchError {
     State(#[source] sqlx::Error),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DispatchOutcome {
+    Delivered,
+    Failed,
+    Stale,
+}
+
 pub async fn dispatch_once(
     pool: &PgPool,
     transport: &HttpSiemTransport,
@@ -175,16 +183,24 @@ pub async fn dispatch_once(
     let results = stream::iter(events.into_iter().map(|event| async move {
         match transport.send(&event).await {
             Ok(()) => {
-                mark_delivered(pool, event.event_id, event.attempts)
+                let updated = mark_delivered(pool, event.event_id, event.attempts)
                     .await
                     .map_err(DispatchError::State)?;
-                Ok::<bool, DispatchError>(true)
+                Ok::<DispatchOutcome, DispatchError>(if updated {
+                    DispatchOutcome::Delivered
+                } else {
+                    DispatchOutcome::Stale
+                })
             }
             Err(error) => {
-                mark_failed(pool, event.event_id, event.attempts, &error.to_string())
+                let updated = mark_failed(pool, event.event_id, event.attempts, &error.to_string())
                     .await
                     .map_err(DispatchError::State)?;
-                Ok(false)
+                Ok(if updated {
+                    DispatchOutcome::Failed
+                } else {
+                    DispatchOutcome::Stale
+                })
             }
         }
     }))
@@ -197,10 +213,10 @@ pub async fn dispatch_once(
         ..DispatchStats::default()
     };
     for result in results {
-        if result? {
-            stats.delivered += 1;
-        } else {
-            stats.failed += 1;
+        match result? {
+            DispatchOutcome::Delivered => stats.delivered += 1,
+            DispatchOutcome::Failed => stats.failed += 1,
+            DispatchOutcome::Stale => stats.stale += 1,
         }
     }
 
@@ -255,6 +271,7 @@ pub async fn run_dispatcher(
                                     claimed = stats.claimed,
                                     delivered = stats.delivered,
                                     failed = stats.failed,
+                                    stale = stats.stale,
                                     "S-Metric SIEM dispatch cycle completed"
                                 );
                             }
