@@ -463,6 +463,52 @@
   margin-top: var(--spacing-lg);
 }
 
+.siem-investigation-notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-lg) 0;
+  border-bottom: var(--border-1) solid var(--border-default);
+
+  label {
+    color: var(--fg-muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  textarea {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 110px;
+    resize: vertical;
+    padding: var(--spacing-sm);
+    border: var(--border-1) solid var(--border-default);
+    border-radius: var(--radius-md);
+    background: var(--bg-default);
+    color: var(--fg-default);
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .siem-alert-action {
+    width: auto;
+    margin-top: 0;
+  }
+}
+
+.siem-investigation-note-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+
+  span {
+    color: var(--fg-muted);
+    font-size: 11px;
+  }
+}
+
 .siem-event-details {
   display: flex;
   flex-direction: column;
@@ -549,11 +595,13 @@
   .siem-hero,
   .siem-footnote,
   .siem-pagination,
-  .siem-panel-header {
+  .siem-panel-header,
+  .siem-investigation-note-actions {
     flex-direction: column;
   }
 
-  .siem-panel-header {
+  .siem-panel-header,
+  .siem-investigation-note-actions {
     align-items: stretch;
   }
 
