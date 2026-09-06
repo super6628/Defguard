@@ -136,7 +136,8 @@
 .siem-close,
 .siem-row-action button,
 .siem-rule-toggle,
-.siem-alert-action {
+.siem-alert-action,
+.siem-matched-rules button {
   min-height: 36px;
   padding: 0 var(--spacing-md);
   border: var(--border-1) solid var(--border-default);
@@ -198,11 +199,22 @@
   }
 }
 
+.siem-detection-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-md);
+}
+
 .siem-rule-toggle {
   width: 100%;
   margin-top: var(--spacing-md);
   background: var(--bg-default);
   font-size: 12px;
+}
+
+.siem-detection-actions .siem-rule-toggle {
+  margin-top: 0;
 }
 
 .siem-rule-toggle[aria-pressed='true'] {
@@ -252,6 +264,19 @@
     color: var(--fg-default);
     font: inherit;
   }
+}
+
+.siem-filters-expanded {
+  grid-template-columns: minmax(240px, 1fr) repeat(5, minmax(135px, 180px));
+}
+
+.siem-filter-note {
+  padding: var(--spacing-sm) var(--spacing-xl);
+  border-bottom: var(--border-1) solid var(--border-default);
+  background: var(--bg-faint);
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .siem-state {
@@ -409,6 +434,30 @@
   gap: var(--spacing-xs);
 }
 
+.siem-matched-rules {
+  margin-top: var(--spacing-lg);
+
+  > span {
+    display: block;
+    margin-bottom: var(--spacing-xs);
+    color: var(--fg-muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  > div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
+  }
+
+  button {
+    min-height: 30px;
+    padding: 0 var(--spacing-sm);
+    font-size: 11px;
+  }
+}
+
 .siem-alert-action {
   width: 100%;
   margin-top: var(--spacing-lg);
@@ -467,6 +516,14 @@
   .siem-investigation {
     position: static;
   }
+
+  .siem-filters-expanded {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .siem-filters-expanded .siem-search {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 1100px) {
@@ -474,7 +531,8 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .siem-filters {
+  .siem-filters,
+  .siem-filters-expanded {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -517,11 +575,17 @@
 
   .siem-kpis,
   .siem-detections-grid,
-  .siem-filters {
+  .siem-filters,
+  .siem-filters-expanded {
     grid-template-columns: 1fr;
   }
 
-  .siem-search {
+  .siem-search,
+  .siem-filters-expanded .siem-search {
     grid-column: auto;
+  }
+
+  .siem-detection-actions {
+    grid-template-columns: 1fr;
   }
 }
