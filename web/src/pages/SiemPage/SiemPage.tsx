@@ -13,6 +13,7 @@ import { displayDate } from '../../shared/utils/displayDate';
 import {
   SIEM_RULE_DEFINITIONS,
   countSiemDetection,
+  getEventTypesForSeverity,
   getSiemDetections,
   getSiemSeverity,
   type SiemActivityLogEvent,
@@ -123,19 +124,25 @@ export const SiemPage = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [source]);
+  }, [severity, source]);
 
   useEffect(() => {
     setSelectedEvent(null);
-  }, [page, debouncedQuery, source]);
+  }, [page, debouncedQuery, severity, source]);
+
+  const severityEventTypes = useMemo(
+    () => (severity === 'all' ? undefined : getEventTypesForSeverity(severity)),
+    [severity],
+  );
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['siem', 'activity-log', page, debouncedQuery, source],
+    queryKey: ['siem', 'activity-log', page, debouncedQuery, severity, source],
     queryFn: () =>
       api.getActivityLog({
         page,
         per_page: PAGE_SIZE,
         search: debouncedQuery || undefined,
+        event: severityEventTypes,
         module: source === 'all' ? undefined : [source],
         sort_by: 'timestamp' as ActivityLogSortKey,
         sort_order: 'desc',
@@ -152,14 +159,6 @@ export const SiemPage = () => {
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
-
-  const filteredEvents = useMemo(
-    () =>
-      events.filter(
-        (event) => severity === 'all' || getSiemSeverity(event) === severity,
-      ),
-    [events, severity],
-  );
 
   const severityCounts = useMemo(
     () =>
@@ -232,7 +231,11 @@ export const SiemPage = () => {
 
         <section className="siem-kpis" aria-label="SIEM summary">
           <article className="siem-kpi">
-            <span>{debouncedQuery || source !== 'all' ? 'Matching events' : 'Total events'}</span>
+            <span>
+              {debouncedQuery || severity !== 'all' || source !== 'all'
+                ? 'Matching events'
+                : 'Total events'}
+            </span>
             <strong>{totalItems}</strong>
             <small>{events.length} loaded on this page</small>
           </article>
@@ -311,7 +314,7 @@ export const SiemPage = () => {
                 />
               </label>
               <label>
-                <span>Severity on page</span>
+                <span>Severity</span>
                 <select
                   value={severity}
                   onChange={(event) => setSeverity(event.target.value as Severity | 'all')}
@@ -348,11 +351,11 @@ export const SiemPage = () => {
                 Activity Log data could not be loaded. Use Refresh to retry.
               </div>
             )}
-            {!isLoading && !isError && filteredEvents.length === 0 && (
+            {!isLoading && !isError && events.length === 0 && (
               <div className="siem-state">No security events match the current filters.</div>
             )}
 
-            {!isLoading && !isError && filteredEvents.length > 0 && (
+            {!isLoading && !isError && events.length > 0 && (
               <div className="siem-table-wrap">
                 <table className="siem-table">
                   <thead>
@@ -368,7 +371,7 @@ export const SiemPage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredEvents.map((event) => {
+                    {events.map((event) => {
                       const eventSeverity = getSiemSeverity(event);
                       const eventDetections = getSiemDetections(event);
                       const networkContext = [event.ip, event.location].filter(Boolean).join(' · ');
@@ -518,9 +521,8 @@ export const SiemPage = () => {
           <strong>Core owns event classification; SIEM controls remain non-destructive.</strong>
           <span>
             Severity and detection metadata come from the Activity Log API when supported, with a
-            compatibility fallback for older Core versions. Text search and source filtering query
-            the full Activity Log history; severity remains page-local until Core exposes a
-            SIEM-specific severity filter.
+            compatibility fallback for older Core versions. Text search, severity, and source
+            filtering query the full Activity Log history through existing server-side filters.
           </span>
         </section>
       </div>
