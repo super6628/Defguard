@@ -417,17 +417,7 @@ export const SiemPage = () => {
             )}
 
             {!isLoading && !isError && totalPages > 1 && (
-              <div
-                aria-label="Security event pagination"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '12px',
-                  padding: '16px 24px',
-                  borderTop: '1px solid var(--border-default)',
-                }}
-              >
+              <div className="siem-pagination" aria-label="Security event pagination">
                 <button
                   className="siem-refresh"
                   type="button"
