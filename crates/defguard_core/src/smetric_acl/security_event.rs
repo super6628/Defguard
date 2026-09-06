@@ -9,6 +9,8 @@ use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 const MAX_DELIVERY_ERROR_CHARS: usize = 4096;
+const INITIAL_RETRY_SECONDS: i64 = 5;
+const MAX_RETRY_SECONDS: i64 = 3600;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -203,8 +205,10 @@ pub async fn mark_failed(
     attempts: i32,
     error: &str,
 ) -> Result<bool, sqlx::Error> {
-    let exponent = u32::try_from(attempts.saturating_sub(1).clamp(0, 9)).unwrap_or(0);
-    let retry_seconds = 5_i64.saturating_mul(1_i64 << exponent).min(3600);
+    let exponent = u32::try_from(attempts.saturating_sub(1).clamp(0, 10)).unwrap_or(0);
+    let retry_seconds = INITIAL_RETRY_SECONDS
+        .saturating_mul(1_i64 << exponent)
+        .min(MAX_RETRY_SECONDS);
     let error = error.chars().take(MAX_DELIVERY_ERROR_CHARS).collect::<String>();
     let result = sqlx::query(
         "UPDATE smetric_security_event_outbox \
@@ -240,8 +244,6 @@ pub async fn mark_dead_lettered(
     Ok(result.rows_affected() == 1)
 }
 
-/// Delete a bounded batch of successfully delivered events older than the retention window.
-/// Dead-lettered and pending rows are never touched.
 pub async fn purge_delivered(
     pool: &PgPool,
     retention_seconds: i64,
