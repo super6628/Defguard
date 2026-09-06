@@ -143,6 +143,11 @@
   &:hover {
     background: var(--bg-muted);
   }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
 }
 
 .siem-detections-grid {
@@ -278,6 +283,15 @@
   tbody tr:last-child td {
     border-bottom: 0;
   }
+}
+
+.siem-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-xl);
+  border-top: var(--border-1) solid var(--border-default);
 }
 
 .siem-row-selected td {
@@ -468,8 +482,17 @@
   }
 
   .siem-hero,
-  .siem-footnote {
+  .siem-footnote,
+  .siem-pagination {
     flex-direction: column;
+  }
+
+  .siem-pagination {
+    align-items: stretch;
+
+    .siem-panel-meta {
+      text-align: center;
+    }
   }
 
   .siem-kpis,
