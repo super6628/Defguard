@@ -60,9 +60,9 @@ const timeRangeMs: Record<Exclude<TimeRange, 'all'>, number> = {
 const formatEvent = (event: SiemActivityLogEvent['event']) =>
   activityLogEventDisplay[event] ?? event.replaceAll('_', ' ');
 
-const getTimeRangeStart = (timeRange: TimeRange) => {
+const getTimeRangeStart = (timeRange: TimeRange, anchorTimestamp: number) => {
   if (timeRange === 'all') return undefined;
-  return new Date(Date.now() - timeRangeMs[timeRange]).toISOString();
+  return new Date(anchorTimestamp - timeRangeMs[timeRange]).toISOString();
 };
 
 const loadRuleState = (): PersistedRuleState => {
@@ -107,6 +107,7 @@ export const SiemPage = () => {
   const [severity, setSeverity] = useState<Severity | 'all'>('all');
   const [source, setSource] = useState<ActivityLogModuleValue | 'all'>('all');
   const [timeRange, setTimeRange] = useState<TimeRange>('all');
+  const [timeRangeAnchor, setTimeRangeAnchor] = useState(() => Date.now());
   const [selectedEvent, setSelectedEvent] = useState<SiemActivityLogEvent | null>(null);
   const [ruleState, setRuleState] = useState<PersistedRuleState>(loadRuleState);
   const [alertState, setAlertState] = useState<PersistedAlertState>(loadAlertState);
@@ -138,25 +139,38 @@ export const SiemPage = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [severity, source, timeRange]);
+  }, [severity, source, timeRangeAnchor]);
 
   useEffect(() => {
     setSelectedEvent(null);
-  }, [page, debouncedQuery, severity, source, timeRange]);
+  }, [page, debouncedQuery, severity, source, timeRangeAnchor]);
 
   const severityEventTypes = useMemo(
     () => (severity === 'all' ? undefined : getEventTypesForSeverity(severity)),
     [severity],
   );
 
+  const timeRangeStart = useMemo(
+    () => getTimeRangeStart(timeRange, timeRangeAnchor),
+    [timeRange, timeRangeAnchor],
+  );
+
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['siem', 'activity-log', page, debouncedQuery, severity, source, timeRange],
+    queryKey: [
+      'siem',
+      'activity-log',
+      page,
+      debouncedQuery,
+      severity,
+      source,
+      timeRangeStart,
+    ],
     queryFn: () =>
       api.getActivityLog({
         page,
         per_page: PAGE_SIZE,
         search: debouncedQuery || undefined,
-        from: getTimeRangeStart(timeRange),
+        from: timeRangeStart,
         event: severityEventTypes,
         module: source === 'all' ? undefined : [source],
         sort_by: 'timestamp' as ActivityLogSortKey,
@@ -223,12 +237,18 @@ export const SiemPage = () => {
     }));
   };
 
+  const updateTimeRange = (nextRange: TimeRange) => {
+    setTimeRange(nextRange);
+    setTimeRangeAnchor(Date.now());
+  };
+
   const resetFilters = () => {
     setQuery('');
     setDebouncedQuery('');
     setSeverity('all');
     setSource('all');
     setTimeRange('all');
+    setTimeRangeAnchor(Date.now());
     setPage(1);
     setSelectedEvent(null);
   };
@@ -377,7 +397,7 @@ export const SiemPage = () => {
                 <span>Time window</span>
                 <select
                   value={timeRange}
-                  onChange={(event) => setTimeRange(event.target.value as TimeRange)}
+                  onChange={(event) => updateTimeRange(event.target.value as TimeRange)}
                 >
                   <option value="all">All history</option>
                   <option value="1h">Last hour</option>
@@ -564,8 +584,8 @@ export const SiemPage = () => {
           <strong>Core owns event classification; SIEM controls remain non-destructive.</strong>
           <span>
             Search, severity, source, and time-window filtering all use existing Activity Log API
-            filters. Rule enablement and alert acknowledgement remain browser-local until the
-            server-side SIEM persistence model is reviewed.
+            filters. Time-window boundaries remain fixed while paging or background-refreshing the
+            current investigation. Rule enablement and alert acknowledgement remain browser-local.
           </span>
         </section>
       </div>
