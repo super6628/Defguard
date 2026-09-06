@@ -1,5 +1,6 @@
 import { m } from '../../../../paraglide/messages';
 import type { CertInfo, InternalSslType } from '../../../api/types';
+import { branding } from '../../../branding/branding';
 import { Button } from '../../../defguard-ui/components/Button/Button';
 import { Divider } from '../../../defguard-ui/components/Divider/Divider';
 import { isPresent } from '../../../defguard-ui/utils/isPresent';
@@ -30,7 +31,7 @@ export const InternalSslResult = ({
         </div>
         <Divider />
         <ul className="ssl-port-list">
-          <li>{m.initial_setup_auto_adoption_internal_url_ssl_no_ssl_port()}</li>
+          <li>{`${branding.productName} Core service via TCP port 8000`}</li>
         </ul>
       </div>
     );
@@ -45,7 +46,9 @@ export const InternalSslResult = ({
         <div className="ssl-result-validated-card-content">
           <div className="ssl-result-card-header">
             <h3>{m.initial_setup_auto_adoption_internal_url_ssl_ca_title()}</h3>
-            <p>{m.initial_setup_auto_adoption_internal_url_ssl_ca_description()}</p>
+            <p>
+              {`You have chosen to secure Core with ${branding.productName}'s internal CA. Download the CA root certificate and import it into your browser or trusted certificate store.`}
+            </p>
           </div>
           <div>
             <Button

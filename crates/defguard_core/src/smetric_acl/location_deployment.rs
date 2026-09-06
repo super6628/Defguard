@@ -139,6 +139,13 @@ pub async fn record_desired(
     .bind(checksum)
     .execute(pool)
     .await?;
+    tracing::info!(
+        security_event = "smetric_acl_deployment_desired",
+        location_id,
+        generation,
+        checksum,
+        "Recorded desired S-Metric firewall deployment"
+    );
     Ok(generation)
 }
 
@@ -150,7 +157,7 @@ pub async fn ensure_desired(
     location_id: i64,
     checksum: &str,
 ) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar::<_, i64>(
+    let generation = sqlx::query_scalar::<_, i64>(
         "INSERT INTO smetric_acl_location_deployment_state \
          (location_id, desired_generation, desired_checksum, desired_at, last_error, last_error_at, updated_at) \
          VALUES ($1, nextval('smetric_acl_location_deployment_generation_seq')::bigint, $2, NOW(), NULL, NULL, NOW()) \
@@ -186,7 +193,15 @@ pub async fn ensure_desired(
     .bind(location_id)
     .bind(checksum)
     .fetch_one(pool)
-    .await
+    .await?;
+    tracing::info!(
+        security_event = "smetric_acl_deployment_desired",
+        location_id,
+        generation,
+        checksum,
+        "Ensured desired S-Metric firewall deployment"
+    );
+    Ok(generation)
 }
 
 pub async fn mark_applied(

@@ -60,6 +60,7 @@ fn validate_branding(branding: &WhiteLabelBranding) -> Result<(), WebError> {
         ("Logo URL", branding.logo_url.as_str()),
         ("Navigation logo URL", branding.nav_logo_url.as_str()),
         ("Dark logo URL", branding.logo_dark_url.as_str()),
+        ("Login image URL", branding.login_image_url.as_str()),
         ("Favicon URL", branding.favicon_url.as_str()),
     ] {
         if !valid_optional_url(value) {

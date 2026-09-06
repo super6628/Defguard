@@ -5,6 +5,7 @@ import { m } from '../../../../paraglide/messages';
 import api from '../../../../shared/api/api';
 import { getApiErrorMessage } from '../../../../shared/api/apiErrorMessages';
 import type { ApiError } from '../../../../shared/api/types';
+import { branding } from '../../../../shared/branding/branding';
 import { Controls } from '../../../../shared/components/Controls/Controls';
 import { WizardCard } from '../../../../shared/components/wizard/WizardCard/WizardCard';
 import { Button } from '../../../../shared/defguard-ui/components/Button/Button';
@@ -113,7 +114,7 @@ export const AutoAdoptionExternalUrlSettingsStep = () => {
             {(field) => (
               <field.FormInput
                 required
-                label={m.initial_setup_auto_adoption_external_url_settings_label()}
+                label={`${branding.productName} public URL`}
                 helper={m.initial_setup_auto_adoption_external_url_settings_helper()}
                 type="text"
               />
@@ -141,18 +142,21 @@ export const AutoAdoptionExternalUrlSettingsStep = () => {
                     onClick={() => form.setFieldValue('ssl_type', 'lets_encrypt')}
                   />
                   <Helper>
-                    {m.initial_setup_auto_adoption_external_url_settings_ssl_option_lets_encrypt_help()}
+                    {branding.productName} will automatically obtain and renew a certificate from
+                    Let's Encrypt for the domain in the URL. Ports 80 and 443 must point to this
+                    host and be publicly accessible.
                   </Helper>
                 </div>
                 <SizedBox height={ThemeSpacing.Md} />
                 <div className="ssl-option-row">
                   <Radio
-                    text={m.initial_setup_auto_adoption_external_url_settings_ssl_option_defguard_ca()}
+                    text="Generate certificates using the internal CA"
                     active={sslType === 'defguard_ca'}
                     onClick={() => form.setFieldValue('ssl_type', 'defguard_ca')}
                   />
                   <Helper>
-                    {m.initial_setup_auto_adoption_external_url_settings_ssl_option_defguard_ca_help()}
+                    {branding.productName} will generate and manage a certificate signed by its
+                    internal CA.
                   </Helper>
                 </div>
                 <SizedBox height={ThemeSpacing.Md} />
