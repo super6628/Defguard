@@ -100,7 +100,7 @@ pub struct QueuedSecurityEvent {
     pub severity: String,
     pub actor_user_id: Option<i64>,
     pub actor_username: Option<String>,
-    pub actor_ip: Option<IpAddr>,
+    pub actor_ip: Option<String>,
     pub subject_type: String,
     pub subject_id: Option<String>,
     pub description: String,
@@ -116,7 +116,7 @@ fn insert_query(
         "INSERT INTO smetric_security_event_outbox (\
             event_id,event_type,category,severity,actor_user_id,actor_username,actor_ip,\
             subject_type,subject_id,description,payload\
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7::inet,$8,$9,$10,$11)",
     )
     .bind(event_id)
     .bind(&event.event_type)
@@ -124,7 +124,7 @@ fn insert_query(
     .bind(event.severity.as_str())
     .bind(event.actor.user_id)
     .bind(&event.actor.username)
-    .bind(event.actor.ip)
+    .bind(event.actor.ip.map(|ip| ip.to_string()))
     .bind(&event.subject_type)
     .bind(&event.subject_id)
     .bind(&event.description)
@@ -175,7 +175,7 @@ pub async fn claim_pending(
          FROM candidates \
          WHERE event.id = candidates.id \
          RETURNING event.event_id,event.event_type,event.category,event.severity,\
-             event.actor_user_id,event.actor_username,event.actor_ip,event.subject_type,\
+             event.actor_user_id,event.actor_username,event.actor_ip::text AS actor_ip,event.subject_type,\
              event.subject_id,event.description,event.payload,event.attempts",
     )
     .bind(limit)
