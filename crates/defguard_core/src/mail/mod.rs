@@ -86,11 +86,6 @@ impl From<Attachment> for SinglePart {
 }
 
 const SMTP_TIMEOUT: Duration = Duration::from_secs(15);
-// Template images.
-static DEFGUARD_LOGO: &[u8] = include_bytes!("assets/defguard.png");
-static GITHUB_LOGO: &[u8] = include_bytes!("assets/github.png");
-static MASTODON_LOGO: &[u8] = include_bytes!("assets/mastodon.png");
-static X_LOGO: &[u8] = include_bytes!("assets/x.png");
 // MFA code
 static DATE_ICON: &[u8] = include_bytes!("assets/date.png");
 static OTP_ICON: &[u8] = include_bytes!("assets/otp.png");
@@ -121,14 +116,6 @@ impl Mail {
     where
         T: Into<String>,
     {
-        // Append images used in all templates.
-        let images = vec![
-            (String::from("defguard"), Vec::from(DEFGUARD_LOGO)),
-            (String::from("github"), Vec::from(GITHUB_LOGO)),
-            (String::from("mastodon"), Vec::from(MASTODON_LOGO)),
-            (String::from("x"), Vec::from(X_LOGO)),
-        ];
-
         Self {
             to: to.into(),
             subject,
@@ -136,7 +123,7 @@ impl Mail {
             text,
             context: Context::new(),
             attachments: Vec::new(),
-            images,
+            images: Vec::new(),
         }
     }
 
@@ -332,7 +319,7 @@ pub enum MailMessage {
     /// Test email to check if SMTP configuration works correctly.
     Test,
     Welcome,
-    /// Information for Defguard support.
+    /// Information for the configured support recipient.
     SupportData,
     DesktopStart,
     /// Information after starting an enrollment.
