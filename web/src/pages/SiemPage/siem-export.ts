@@ -1,7 +1,7 @@
 import type { SiemActivityLogEvent } from './siem-classification';
 import { getSiemDetections, getSiemSeverity } from './siem-classification';
 
-const DANGEROUS_SPREADSHEET_PREFIX = /^[=+\-@]/;
+const DANGEROUS_SPREADSHEET_PREFIX = /^[\t\r\n ]*[=+\-@]/;
 
 const escapeCsvCell = (value: unknown) => {
   const rawText = value == null ? '' : String(value);
@@ -56,5 +56,5 @@ export const downloadSiemCsv = (events: SiemActivityLogEvent[]) => {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 };
