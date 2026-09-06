@@ -11,6 +11,7 @@ use super::{
 };
 
 const MAX_DISPATCH_CONCURRENCY: i64 = 32;
+const MAX_DELIVERY_ATTEMPTS: i32 = 12;
 
 #[derive(Clone)]
 pub struct HttpSiemTransport {
@@ -77,8 +78,13 @@ impl TransportError {
         }
     }
 
+    /// Failures that cannot plausibly recover by waiting. Authentication/authorization failures
+    /// are deliberately retryable so rotating a bad token can recover queued events.
     fn is_terminal(self) -> bool {
-        matches!(self, Self::HttpStatus(status) if (400..500).contains(&status) && status != 408 && status != 429)
+        matches!(
+            self,
+            Self::HttpStatus(400 | 404 | 405 | 410 | 413 | 414 | 415 | 422)
+        )
     }
 }
 
@@ -200,7 +206,7 @@ pub async fn dispatch_once(
                     DispatchOutcome::Stale
                 })
             }
-            Err(error) if error.is_terminal() => {
+            Err(error) if error.is_terminal() || event.attempts >= MAX_DELIVERY_ATTEMPTS => {
                 let updated = mark_dead_lettered(
                     pool,
                     event.event_id,
@@ -291,6 +297,12 @@ pub async fn run_dispatcher(
                     result = dispatch => {
                         match result {
                             Ok(stats) if stats.claimed > 0 => {
+                                if stats.dead_lettered > 0 {
+                                    tracing::warn!(
+                                        dead_lettered = stats.dead_lettered,
+                                        "S-Metric SIEM events were dead-lettered; inspect the outbox last_error values"
+                                    );
+                                }
                                 tracing::info!(
                                     claimed = stats.claimed,
                                     delivered = stats.delivered,
