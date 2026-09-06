@@ -9,7 +9,11 @@ use axum_extra::{
     },
     headers::UserAgent,
 };
-use base64::{Engine, prelude::BASE64_STANDARD};
+use base64::{
+    Engine,
+    engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD},
+    prelude::BASE64_STANDARD,
+};
 use defguard_common::{
     config::server_config,
     db::{
@@ -39,7 +43,7 @@ use super::LicenseInfo;
 use crate::{
     appstate::AppState,
     enterprise::{
-        db::models::openid_provider::OpenIdProvider,
+        db::models::openid_provider::{OpenIdProvider, OpenIdProviderKind},
         directory_sync::{sync_user_groups_if_configured, user_in_directory_groups},
         ldap::utils::ldap_update_user_state,
         license::get_cached_license,
@@ -110,6 +114,138 @@ fn reached_user_license_limit() -> Option<(u32, u32)> {
     user_limit
         .filter(|limit| user_count >= *limit)
         .map(|limit| (user_count, limit))
+}
+
+#[derive(Debug, Deserialize)]
+struct MicrosoftIdTokenClaims {
+    tid: String,
+    #[serde(default)]
+    amr: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GoogleIdTokenClaims {
+    #[serde(default)]
+    amr: Vec<String>,
+}
+
+fn microsoft_tenant_from_base_url(base_url: &str) -> Result<String, WebError> {
+    let url = Url::parse(base_url).map_err(|err| {
+        WebError::Authorization(format!(
+            "Invalid Microsoft OpenID provider URL: {err}"
+        ))
+    })?;
+    let tenant = url
+        .path_segments()
+        .and_then(|mut segments| segments.find(|segment| !segment.is_empty()))
+        .ok_or_else(|| {
+            WebError::Authorization(
+                "Microsoft OpenID provider URL must contain a tenant GUID".into(),
+            )
+        })?;
+    let parts = tenant.split('-').collect::<Vec<_>>();
+    let valid_guid = parts.len() == 5
+        && [8, 4, 4, 4, 12]
+            .iter()
+            .zip(parts.iter())
+            .all(|(len, part)| part.len() == *len && part.bytes().all(|b| b.is_ascii_hexdigit()));
+    if !valid_guid {
+        return Err(WebError::Authorization(
+            "Microsoft OpenID provider must use a tenant-specific GUID; common, organizations, consumers, and tenant-domain endpoints are not accepted".into(),
+        ));
+    }
+    Ok(tenant.to_owned())
+}
+
+fn decode_id_token_claims<T>(id_token: &str, provider_name: &str) -> Result<T, WebError>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let payload = id_token.split('.').nth(1).ok_or_else(|| {
+        WebError::Authorization(format!("{provider_name} ID token has an invalid JWT format"))
+    })?;
+    let decoded = URL_SAFE_NO_PAD
+        .decode(payload)
+        .or_else(|_| URL_SAFE.decode(payload))
+        .map_err(|_| {
+            WebError::Authorization(format!("{provider_name} ID token payload is invalid"))
+        })?;
+    serde_json::from_slice(&decoded).map_err(|_| {
+        WebError::Authorization(format!(
+            "{provider_name} ID token claims could not be decoded"
+        ))
+    })
+}
+
+/// Apply Microsoft-specific authorization policy after the normal OIDC verifier has validated the
+/// ID token signature, issuer, expiry and nonce. The raw JWT is decoded here only to read claims
+/// that aren't represented by `CoreIdTokenClaims`; it is never used as a substitute for OIDC
+/// verification.
+fn enforce_microsoft_token_policy(
+    provider: &OpenIdProvider<Id>,
+    id_token: &str,
+) -> Result<(), WebError> {
+    if provider.kind != OpenIdProviderKind::Microsoft {
+        return Ok(());
+    }
+
+    let expected_tenant = microsoft_tenant_from_base_url(&provider.base_url)?;
+    let claims: MicrosoftIdTokenClaims = decode_id_token_claims(id_token, "Microsoft")?;
+    if !claims.tid.eq_ignore_ascii_case(&expected_tenant) {
+        warn!(
+            "Microsoft OpenID login rejected: token tenant {} does not match configured tenant {}",
+            claims.tid, expected_tenant
+        );
+        return Err(WebError::Authorization(
+            "Microsoft ID token was issued for an unexpected tenant".into(),
+        ));
+    }
+
+    // Microsoft documents `mfa` as proof of multifactor authentication and `ngcmfa` as its
+    // equivalent. Do not accept ambiguous indicators such as `wiaormfa` as proof of MFA.
+    let mfa_satisfied = claims
+        .amr
+        .iter()
+        .any(|method| method.eq_ignore_ascii_case("mfa") || method.eq_ignore_ascii_case("ngcmfa"));
+    if !mfa_satisfied {
+        warn!(
+            "Microsoft OpenID login rejected: token for tenant {} did not contain an MFA authentication method reference",
+            expected_tenant
+        );
+        return Err(WebError::Authorization(
+            "Microsoft Entra ID login did not satisfy the required MFA policy".into(),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Require Google to assert that the authentication which produced the already-verified ID token
+/// used MFA. Google exposes authentication method references in the `amr` claim; `mfa` is the
+/// provider assertion that multiple factors were used.
+fn enforce_google_token_policy(
+    provider: &OpenIdProvider<Id>,
+    id_token: &str,
+) -> Result<(), WebError> {
+    if provider.kind != OpenIdProviderKind::Google {
+        return Ok(());
+    }
+
+    let claims: GoogleIdTokenClaims = decode_id_token_claims(id_token, "Google")?;
+    if !claims
+        .amr
+        .iter()
+        .any(|method| method.eq_ignore_ascii_case("mfa"))
+    {
+        warn!(
+            "Google OpenID login rejected: verified ID token did not contain the mfa authentication method reference"
+        );
+        return Err(WebError::Authorization(
+            "Google login did not satisfy the required MFA policy".into(),
+        ));
+    }
+
+    Ok(())
 }
 
 /// Create HTTP client and prevent following redirects
@@ -292,6 +428,10 @@ pub async fn user_from_claims(
                 .join(", ")
         );
     }
+
+    let raw_id_token = id_token.to_string();
+    enforce_microsoft_token_policy(&provider, &raw_id_token)?;
+    enforce_google_token_policy(&provider, &raw_id_token)?;
 
     // Only email and username is required for user lookup and login
     let email = token_claims.email().ok_or(WebError::BadRequest(
@@ -866,7 +1006,6 @@ mod test {
 
     #[test]
     fn test_prune_username() {
-        // Test RemoveForbidden handling
         let handling_remove = OpenIdUsernameHandling::RemoveForbidden;
         assert_eq!(prune_username("zenek", handling_remove), "zenek");
         assert_eq!(prune_username("zenek34", handling_remove), "zenek34");
@@ -887,7 +1026,6 @@ mod test {
         assert_eq!(prune_username("!zenek", handling_remove), "zenek");
         assert_eq!(prune_username("...zenek", handling_remove), "zenek");
 
-        // Test ReplaceForbidden handling
         let handling_replace = OpenIdUsernameHandling::ReplaceForbidden;
         assert_eq!(prune_username("zenek", handling_replace), "zenek");
         assert_eq!(prune_username("zenek34", handling_replace), "zenek34");
@@ -904,7 +1042,6 @@ mod test {
             "averylongnameeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
         );
 
-        // Test PruneEmailDomain handling
         let handling_prune_email = OpenIdUsernameHandling::PruneEmailDomain;
         assert_eq!(
             prune_username("zenek@example.com", handling_prune_email),
@@ -933,14 +1070,11 @@ mod test {
 
     #[test]
     fn test_state_build_and_extract() {
-        // without data
         let token = build_state(None);
         let decoded = BASE64_STANDARD.decode(token.secret());
-        // not base64 encoded
         assert!(decoded.is_err());
         assert!(!token.secret().is_empty());
 
-        // with data
         let data = "somedata".to_owned();
         let token = build_state(Some(data.clone()));
         let decoded = BASE64_STANDARD.decode(token.secret());
@@ -950,32 +1084,26 @@ mod test {
         assert!(!csrf.is_empty());
         assert_eq!(state_data, data);
 
-        // valid
         let data = "my_state_data".to_owned();
         let token = build_state(Some(data.clone()));
         let extracted = extract_state_data(token.secret());
         assert_eq!(extracted, Some(data));
 
-        // invalid base64
         let extracted = extract_state_data("not_base64!!");
         assert_eq!(extracted, None);
 
-        // no dot
         let encoded = BASE64_STANDARD.encode("no_dot_here");
         let extracted = extract_state_data(&encoded);
         assert_eq!(extracted, None);
 
-        // empty first part
         let encoded = BASE64_STANDARD.encode(".somedata");
         let extracted = extract_state_data(&encoded);
         assert_eq!(extracted, None);
 
-        // empty second part
         let encoded = BASE64_STANDARD.encode("csrf.");
         let extracted = extract_state_data(&encoded);
         assert_eq!(extracted, Some(String::new()));
 
-        // multiple dots
         let encoded = BASE64_STANDARD.encode("csrf.data.with.dots");
         let extracted = extract_state_data(&encoded);
         assert_eq!(extracted, Some("data.with.dots".to_owned()));
@@ -1000,7 +1128,6 @@ mod test {
             vec![],
         );
         set_cached_license(Some(license));
-
         assert_eq!(reached_user_license_limit(), Some((2, 2)));
     }
 
@@ -1023,7 +1150,6 @@ mod test {
             vec![],
         );
         set_cached_license(Some(license));
-
         assert_eq!(reached_user_license_limit(), None);
     }
 
@@ -1041,7 +1167,6 @@ mod test {
             vec![],
         );
         set_cached_license(Some(license));
-
         assert_eq!(reached_user_license_limit(), None);
     }
 
@@ -1143,9 +1268,6 @@ mod test {
         )
     }
 
-    /// Log a user belonging to a single locally managed group in through an external OpenID
-    /// provider configured with the given directory sync target. The mock directory reports the
-    /// user as a member of "group1" only, so a sync that runs replaces the local group.
     async fn login_with_sync_target(
         pool: &PgPool,
         target: DirectorySyncTarget,
@@ -1169,7 +1291,6 @@ mod test {
         user.add_to_group(pool, &local_group).await.unwrap();
 
         let provider_server = make_mock_provider_server(&user.email).await;
-        // The provider name selects the directory sync client, "Test" is the mock one.
         OpenIdProvider::new(
             "Test".to_owned(),
             provider_server.uri(),
@@ -1220,9 +1341,6 @@ mod test {
         (user, local_group)
     }
 
-    // Logging in through an external OpenID provider used to sync the user's groups regardless of
-    // the configured directory sync target, wiping locally managed group assignments when the
-    // target was set to users only.
     #[sqlx::test]
     async fn test_login_keeps_groups_when_sync_target_is_users(
         _: PgPoolOptions,
