@@ -244,9 +244,6 @@ pub async fn mark_dead_lettered(
     Ok(result.rows_affected() == 1)
 }
 
-/// Requeue one dead-lettered event after an operator has corrected the delivery configuration.
-/// Resetting attempts prevents an immediately requeued authentication failure from being sent
-/// straight back to the dead-letter state.
 pub async fn requeue_dead_lettered(pool: &PgPool, event_id: Uuid) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
         "UPDATE smetric_security_event_outbox \
@@ -257,6 +254,33 @@ pub async fn requeue_dead_lettered(pool: &PgPool, event_id: Uuid) -> Result<bool
     .execute(pool)
     .await?;
     Ok(result.rows_affected() == 1)
+}
+
+/// Requeue at most `limit` dead-lettered events, oldest first. Row locking keeps concurrent recovery
+/// operations from selecting the same events, while resetting attempts gives corrected credentials
+/// or endpoint configuration a fresh delivery window.
+pub async fn requeue_dead_lettered_batch(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<u64, sqlx::Error> {
+    let limit = limit.clamp(1, 10_000);
+    let result = sqlx::query(
+        "WITH candidates AS (\
+            SELECT id FROM smetric_security_event_outbox \
+            WHERE delivered_at IS NULL AND dead_lettered_at IS NOT NULL \
+            ORDER BY dead_lettered_at, id \
+            FOR UPDATE SKIP LOCKED \
+            LIMIT $1\
+         ) \
+         UPDATE smetric_security_event_outbox AS event \
+         SET dead_lettered_at = NULL, attempts = 0, next_attempt_at = NOW(), last_error = NULL \
+         FROM candidates \
+         WHERE event.id = candidates.id",
+    )
+    .bind(limit)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
 }
 
 pub async fn purge_delivered(
