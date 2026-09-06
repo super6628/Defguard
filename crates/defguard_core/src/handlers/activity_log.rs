@@ -164,16 +164,61 @@ fn classify_siem_event(event: &str) -> (SiemSeverity, Vec<SiemDetectionRuleId>) 
         | "password_reset"
         | "user_removed"
         | "device_removed"
-        | "network_device_removed" => SiemSeverity::High,
+        | "network_device_removed"
+        | "mfa_totp_disabled"
+        | "mfa_email_disabled"
+        | "mfa_security_key_removed" => SiemSeverity::High,
         "settings_updated"
         | "settings_updated_partial"
         | "enterprise_settings_updated"
         | "api_token_added"
+        | "api_token_removed"
+        | "api_token_renamed"
         | "authentication_key_added"
+        | "authentication_key_removed"
+        | "authentication_key_renamed"
+        | "password_changed"
+        | "mfa_totp_enabled"
+        | "mfa_email_enabled"
+        | "mfa_security_key_added"
+        | "group_added"
         | "group_modified"
+        | "group_removed"
+        | "group_member_added"
+        | "group_member_removed"
+        | "group_members_modified"
+        | "groups_bulk_assigned"
         | "user_groups_modified"
+        | "activity_log_stream_created"
+        | "activity_log_stream_modified"
+        | "activity_log_stream_removed"
+        | "web_hook_added"
+        | "web_hook_modified"
+        | "web_hook_removed"
+        | "web_hook_state_changed"
+        | "open_id_app_added"
+        | "open_id_app_removed"
+        | "open_id_app_modified"
+        | "open_id_app_state_changed"
+        | "open_id_provider_removed"
+        | "open_id_provider_modified"
+        | "client_configuration_token_added"
+        | "vpn_location_added"
+        | "vpn_location_removed"
+        | "vpn_location_modified"
+        | "user_snat_binding_added"
+        | "user_snat_binding_modified"
+        | "user_snat_binding_removed"
+        | "gateway_modified"
         | "gateway_disconnected"
-        | "proxy_disconnected" => SiemSeverity::Medium,
+        | "proxy_modified"
+        | "proxy_disconnected"
+        | "device_posture_created"
+        | "device_posture_updated"
+        | "device_posture_deleted"
+        | "device_posture_duplicated"
+        | "device_posture_locations_assigned"
+        | "location_postures_assigned" => SiemSeverity::Medium,
         _ => SiemSeverity::Low,
     };
 
@@ -191,10 +236,21 @@ fn classify_siem_event(event: &str) -> (SiemSeverity, Vec<SiemDetectionRuleId>) 
         "recovery_code_used"
             | "mfa_disabled"
             | "user_mfa_disabled"
+            | "mfa_totp_enabled"
+            | "mfa_totp_disabled"
+            | "mfa_email_enabled"
+            | "mfa_email_disabled"
+            | "mfa_security_key_added"
+            | "mfa_security_key_removed"
+            | "password_changed"
             | "password_changed_by_admin"
             | "password_reset"
             | "api_token_added"
+            | "api_token_removed"
+            | "api_token_renamed"
             | "authentication_key_added"
+            | "authentication_key_removed"
+            | "authentication_key_renamed"
     ) {
         detections.push(SiemDetectionRuleId::CredentialSecurityChanges);
     }
@@ -206,12 +262,48 @@ fn classify_siem_event(event: &str) -> (SiemSeverity, Vec<SiemDetectionRuleId>) 
     if matches!(
         event,
         "gateway_deleted"
+            | "gateway_modified"
             | "proxy_deleted"
+            | "proxy_modified"
             | "gateway_disconnected"
             | "proxy_disconnected"
             | "settings_updated"
             | "settings_updated_partial"
             | "enterprise_settings_updated"
+            | "group_added"
+            | "group_modified"
+            | "group_removed"
+            | "group_member_added"
+            | "group_member_removed"
+            | "group_members_modified"
+            | "groups_bulk_assigned"
+            | "user_groups_modified"
+            | "activity_log_stream_created"
+            | "activity_log_stream_modified"
+            | "activity_log_stream_removed"
+            | "web_hook_added"
+            | "web_hook_modified"
+            | "web_hook_removed"
+            | "web_hook_state_changed"
+            | "open_id_app_added"
+            | "open_id_app_removed"
+            | "open_id_app_modified"
+            | "open_id_app_state_changed"
+            | "open_id_provider_removed"
+            | "open_id_provider_modified"
+            | "client_configuration_token_added"
+            | "vpn_location_added"
+            | "vpn_location_removed"
+            | "vpn_location_modified"
+            | "user_snat_binding_added"
+            | "user_snat_binding_modified"
+            | "user_snat_binding_removed"
+            | "device_posture_created"
+            | "device_posture_updated"
+            | "device_posture_deleted"
+            | "device_posture_duplicated"
+            | "device_posture_locations_assigned"
+            | "location_postures_assigned"
     ) {
         detections.push(SiemDetectionRuleId::InfrastructureChanges);
     }
@@ -266,14 +358,11 @@ pub async fn get_activity_log_events(
         Some(session_info.user.username.clone())
     };
 
-    // start with base SELECT query
-    // dummy WHERE filter is use to enable composable filtering
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
         "SELECT id, timestamp, user_id, username, location, ip, event, module, device, description \
         FROM activity_log_event WHERE 1=1 ",
     );
 
-    // filter events for non-admin users to show only their own events
     if let Some(username) = &visible_username {
         query_builder
             .push(" AND username = ")
@@ -281,13 +370,9 @@ pub async fn get_activity_log_events(
             .push(" ");
     }
 
-    // add optional filters
     apply_filters(&mut query_builder, &filters);
-
-    // apply ordering
     apply_sorting(&mut query_builder, &sorting);
 
-    // add limit and offset to fetch a specific page
     query_builder
         .push(" LIMIT ")
         .push_bind(i64::from(pagination.per_page()));
@@ -295,7 +380,6 @@ pub async fn get_activity_log_events(
         .push(" OFFSET ")
         .push_bind(i64::from(pagination.offset()));
 
-    // fetch filtered events
     let mut events = query_builder
         .build_query_as::<ApiActivityLogEvent>()
         .fetch_all(&appstate.pool)
@@ -304,8 +388,6 @@ pub async fn get_activity_log_events(
         event.apply_siem_classification();
     }
 
-    // execute count query
-    // fetch total number of visible, filtered events
     let mut count_query_builder: QueryBuilder<Postgres> =
         QueryBuilder::new("SELECT COUNT(*) FROM activity_log_event WHERE 1=1 ");
     if let Some(username) = &visible_username {
@@ -327,11 +409,9 @@ pub async fn get_activity_log_events(
     ))
 }
 
-/// Adds optional filtering statements to SQL query based on request query params
 fn apply_filters(query_builder: &mut QueryBuilder<Postgres>, filters: &FilterParams) {
     debug!("Applying query filters: {filters:?}");
 
-    // time filters
     if let Some(from) = filters.from {
         query_builder
             .push(" AND timestamp >= ")
@@ -343,7 +423,6 @@ fn apply_filters(query_builder: &mut QueryBuilder<Postgres>, filters: &FilterPar
             .push_bind(until.naive_utc());
     }
 
-    // user filter
     if !filters.username.is_empty() {
         query_builder
             .push(" AND username = ANY(")
@@ -351,7 +430,6 @@ fn apply_filters(query_builder: &mut QueryBuilder<Postgres>, filters: &FilterPar
             .push(") ");
     }
 
-    // location filter
     if !filters.location.is_empty() {
         query_builder
             .push(" AND location = ANY(")
@@ -359,7 +437,6 @@ fn apply_filters(query_builder: &mut QueryBuilder<Postgres>, filters: &FilterPar
             .push(") ");
     }
 
-    // event filter
     if !filters.event.is_empty() {
         query_builder
             .push(" AND event = ANY(")
@@ -367,7 +444,6 @@ fn apply_filters(query_builder: &mut QueryBuilder<Postgres>, filters: &FilterPar
             .push(") ");
     }
 
-    // module filter
     if !filters.module.is_empty() {
         query_builder
             .push(" AND module = ANY(")
@@ -375,14 +451,6 @@ fn apply_filters(query_builder: &mut QueryBuilder<Postgres>, filters: &FilterPar
             .push(") ");
     }
 
-    // search by provided term
-    // following columns are supported:
-    // - username
-    // - location
-    // - module
-    // - event
-    // - device
-    // - description
     if let Some(search_term) = &filters.search {
         query_builder
             .push(" AND CONCAT(username, ' ', location, ' ', module, ' ', event, ' ', device, ' ', description, ' ') ILIKE ")
@@ -391,7 +459,6 @@ fn apply_filters(query_builder: &mut QueryBuilder<Postgres>, filters: &FilterPar
     }
 }
 
-/// Adds ORDER BY clause to SQL query based on request query params
 fn apply_sorting(query_builder: &mut QueryBuilder<Postgres>, sorting: &SortParams) {
     debug!("Applying query sorting: {sorting:?}");
 
@@ -438,6 +505,25 @@ mod tests {
     #[test]
     fn classifies_medium_infrastructure_event() {
         let (severity, detections) = classify_siem_event("settings_updated");
+
+        assert_eq!(severity, SiemSeverity::Medium);
+        assert_eq!(detections, vec![SiemDetectionRuleId::InfrastructureChanges]);
+    }
+
+    #[test]
+    fn classifies_mfa_method_removal_as_high_credential_change() {
+        let (severity, detections) = classify_siem_event("mfa_security_key_removed");
+
+        assert_eq!(severity, SiemSeverity::High);
+        assert_eq!(
+            detections,
+            vec![SiemDetectionRuleId::CredentialSecurityChanges]
+        );
+    }
+
+    #[test]
+    fn classifies_logging_change_as_medium_infrastructure_change() {
+        let (severity, detections) = classify_siem_event("activity_log_stream_removed");
 
         assert_eq!(severity, SiemSeverity::Medium);
         assert_eq!(detections, vec![SiemDetectionRuleId::InfrastructureChanges]);
