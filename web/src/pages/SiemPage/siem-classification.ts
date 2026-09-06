@@ -1,5 +1,6 @@
-import type {
-  ActivityLogEventTypeValue,
+import {
+  ActivityLogEventType,
+  type ActivityLogEventTypeValue,
 } from '../../shared/api/activity-log-types';
 import type { ActivityLogEvent } from '../../shared/api/types';
 import type {
@@ -112,6 +113,13 @@ export const getFallbackSeverity = (
   if (mediumEvents.has(event)) return 'medium';
   return 'low';
 };
+
+export const getEventTypesForSeverity = (
+  severity: SiemSeverity,
+): ActivityLogEventTypeValue[] =>
+  Object.values(ActivityLogEventType).filter(
+    (event) => getFallbackSeverity(event) === severity,
+  );
 
 export const getFallbackDetections = (
   event: ActivityLogEventTypeValue,
