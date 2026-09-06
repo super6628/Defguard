@@ -6,7 +6,9 @@ use serde::Serialize;
 use sqlx::PgPool;
 use tokio::{sync::watch, time::MissedTickBehavior};
 
-use super::{QueuedSecurityEvent, claim_pending, mark_delivered, mark_failed};
+use super::{
+    QueuedSecurityEvent, claim_pending, mark_dead_lettered, mark_delivered, mark_failed,
+};
 
 const MAX_DISPATCH_CONCURRENCY: i64 = 32;
 
@@ -74,6 +76,10 @@ impl TransportError {
             Self::Request
         }
     }
+
+    fn is_terminal(self) -> bool {
+        matches!(self, Self::HttpStatus(status) if (400..500).contains(&status) && status != 408 && status != 429)
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -132,6 +138,7 @@ pub struct DispatchStats {
     pub claimed: usize,
     pub delivered: usize,
     pub failed: usize,
+    pub dead_lettered: usize,
     pub stale: usize,
 }
 
@@ -164,6 +171,7 @@ pub enum DispatchError {
 enum DispatchOutcome {
     Delivered,
     Failed,
+    DeadLettered,
     Stale,
 }
 
@@ -192,6 +200,21 @@ pub async fn dispatch_once(
                     DispatchOutcome::Stale
                 })
             }
+            Err(error) if error.is_terminal() => {
+                let updated = mark_dead_lettered(
+                    pool,
+                    event.event_id,
+                    event.attempts,
+                    &error.to_string(),
+                )
+                .await
+                .map_err(DispatchError::State)?;
+                Ok(if updated {
+                    DispatchOutcome::DeadLettered
+                } else {
+                    DispatchOutcome::Stale
+                })
+            }
             Err(error) => {
                 let updated = mark_failed(pool, event.event_id, event.attempts, &error.to_string())
                     .await
@@ -216,6 +239,7 @@ pub async fn dispatch_once(
         match result? {
             DispatchOutcome::Delivered => stats.delivered += 1,
             DispatchOutcome::Failed => stats.failed += 1,
+            DispatchOutcome::DeadLettered => stats.dead_lettered += 1,
             DispatchOutcome::Stale => stats.stale += 1,
         }
     }
@@ -271,6 +295,7 @@ pub async fn run_dispatcher(
                                     claimed = stats.claimed,
                                     delivered = stats.delivered,
                                     failed = stats.failed,
+                                    dead_lettered = stats.dead_lettered,
                                     stale = stats.stale,
                                     "S-Metric SIEM dispatch cycle completed"
                                 );
