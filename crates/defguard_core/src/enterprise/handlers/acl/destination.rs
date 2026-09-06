@@ -351,7 +351,7 @@ pub(crate) async fn get_acl_destination(
     request_body(content = EditAclDestination, example = json!({"name": "internal-web", "addresses": "10.0.0.0/24", "ports": "80, 443", "protocols": [6], "any_address": false, "any_port": false, "any_protocol": false})),
     responses(
         (status = 201, description = "ACL destination created.", body = ApiAclDestination),
-        (status = 400, description = "Destination addresses, ports or protocols are missing.", body = ApiErrorResponse, example = json!({"msg": "Must provide alias addresses, ports, or protocols"})),
+        (status = 400, description = "Destination name is blank or required address, port, or protocol settings are missing.", body = ApiErrorResponse, example = json!({"msg": "Destination name cannot be empty"})),
         (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
         (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
         (status = 422, description = "Invalid addresses, ports or protocols.", body = ApiErrorResponse, example = json!({"msg": "Unprocessable entity"})),
@@ -398,7 +398,7 @@ pub(crate) async fn create_acl_destination(
     ),
     responses(
         (status = 200, description = "ACL destination updated.", body = ApiAclDestination),
-        (status = 400, description = "Destination addresses, ports or protocols are missing.", body = ApiErrorResponse, example = json!({"msg": "Must provide alias addresses, ports, or protocols"})),
+        (status = 400, description = "Destination name is blank or required address, port, or protocol settings are missing.", body = ApiErrorResponse, example = json!({"msg": "Destination name cannot be empty"})),
         (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
         (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
         (status = 404, description = "ACL destination not found.", body = ApiErrorResponse, example = json!({"msg": "Destination 1 not found"})),
@@ -487,7 +487,7 @@ pub(crate) async fn delete_acl_destination(
     request_body = ApplyAclDestinationsData,
     responses(
         (status = 200, description = "Pending destination changes applied."),
-        (status = 400, description = "ACL destination is already applied.", body = ApiErrorResponse, example = json!({"msg": "Destination 1 already applied"})),
+        (status = 400, description = "Apply batch is empty or an ACL destination is already applied.", body = ApiErrorResponse, example = json!({"msg": "Must provide at least one ACL destination to apply"})),
         (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
         (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
         (status = 404, description = "ACL destination not found.", body = ApiErrorResponse, example = json!({"msg": "Destination 1 not found"})),
