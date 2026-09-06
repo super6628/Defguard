@@ -5,20 +5,21 @@ import {
   type ActivityLogEventTypeValue,
 } from '../../shared/api/activity-log-types';
 import api from '../../shared/api/api';
+import type { SiemDetectionRuleId, SiemSeverity } from '../../shared/api/siem-types';
 import type { ActivityLogEvent, ActivityLogSortKey } from '../../shared/api/types';
 import { Page } from '../../shared/components/Page/Page';
 import { displayDate } from '../../shared/utils/displayDate';
 import './style.scss';
 
-type Severity = 'critical' | 'high' | 'medium' | 'low';
+type Severity = SiemSeverity;
+type DetectionRuleId = SiemDetectionRuleId;
 type AlertStatus = 'open' | 'acknowledged';
-type DetectionRuleId =
-  | 'authentication-failures'
-  | 'credential-security-changes'
-  | 'posture-failures'
-  | 'infrastructure-changes';
 type PersistedRuleState = Record<DetectionRuleId, boolean>;
 type PersistedAlertState = Record<string, AlertStatus>;
+type SiemActivityLogEvent = ActivityLogEvent & {
+  siem_severity?: SiemSeverity;
+  siem_detections?: SiemDetectionRuleId[];
+};
 
 type DetectionSummary = {
   id: DetectionRuleId;
@@ -98,20 +99,35 @@ const infrastructureChangeEvents = new Set<ActivityLogEventTypeValue>([
   'enterprise_settings_updated',
 ]);
 
-const getSeverity = (event: ActivityLogEventTypeValue): Severity => {
+const getFallbackSeverity = (event: ActivityLogEventTypeValue): Severity => {
   if (criticalEvents.has(event)) return 'critical';
   if (highEvents.has(event)) return 'high';
   if (mediumEvents.has(event)) return 'medium';
   return 'low';
 };
 
+const getFallbackDetections = (event: ActivityLogEventTypeValue): DetectionRuleId[] => {
+  const detections: DetectionRuleId[] = [];
+
+  if (authenticationFailureEvents.has(event)) detections.push('authentication-failures');
+  if (credentialChangeEvents.has(event)) detections.push('credential-security-changes');
+  if (event === 'device_posture_check_failed') detections.push('posture-failures');
+  if (infrastructureChangeEvents.has(event)) detections.push('infrastructure-changes');
+
+  return detections;
+};
+
+const getSeverity = (event: SiemActivityLogEvent): Severity =>
+  event.siem_severity ?? getFallbackSeverity(event.event);
+
+const getDetections = (event: SiemActivityLogEvent): DetectionRuleId[] =>
+  event.siem_detections ?? getFallbackDetections(event.event);
+
 const formatEvent = (event: ActivityLogEventTypeValue) =>
   activityLogEventDisplay[event] ?? event.replaceAll('_', ' ');
 
-const countMatchingEvents = (
-  events: ActivityLogEvent[],
-  matchingEvents: Set<ActivityLogEventTypeValue>,
-) => events.reduce((count, event) => count + Number(matchingEvents.has(event.event)), 0);
+const countDetection = (events: SiemActivityLogEvent[], ruleId: DetectionRuleId) =>
+  events.reduce((count, event) => count + Number(getDetections(event).includes(ruleId)), 0);
 
 const loadRuleState = (): PersistedRuleState => {
   if (typeof window === 'undefined') return defaultRuleState;
@@ -156,7 +172,7 @@ export const SiemPage = () => {
   const [query, setQuery] = useState('');
   const [severity, setSeverity] = useState<Severity | 'all'>('all');
   const [source, setSource] = useState('all');
-  const [selectedEvent, setSelectedEvent] = useState<ActivityLogEvent | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<SiemActivityLogEvent | null>(null);
   const [ruleState, setRuleState] = useState<PersistedRuleState>(loadRuleState);
   const [alertState, setAlertState] = useState<PersistedAlertState>(loadAlertState);
 
@@ -187,7 +203,7 @@ export const SiemPage = () => {
     refetchInterval: 30_000,
   });
 
-  const events = data?.data ?? [];
+  const events = (data?.data ?? []) as SiemActivityLogEvent[];
   const sources = useMemo(
     () => Array.from(new Set(events.map((event) => event.module))).sort(),
     [events],
@@ -197,7 +213,7 @@ export const SiemPage = () => {
     const normalizedQuery = query.trim().toLowerCase();
 
     return events.filter((event) => {
-      const eventSeverity = getSeverity(event.event);
+      const eventSeverity = getSeverity(event);
       const matchesSeverity = severity === 'all' || eventSeverity === severity;
       const matchesSource = source === 'all' || event.module === source;
       const matchesQuery =
@@ -222,7 +238,7 @@ export const SiemPage = () => {
     () =>
       events.reduce<Record<Severity, number>>(
         (acc, event) => {
-          acc[getSeverity(event.event)] += 1;
+          acc[getSeverity(event)] += 1;
           return acc;
         },
         { critical: 0, high: 0, medium: 0, low: 0 },
@@ -237,7 +253,7 @@ export const SiemPage = () => {
         label: 'Authentication failures',
         description: 'Failed user, MFA, and VPN MFA authentication activity.',
         severity: 'high',
-        count: countMatchingEvents(events, authenticationFailureEvents),
+        count: countDetection(events, 'authentication-failures'),
         enabled: ruleState['authentication-failures'],
       },
       {
@@ -245,7 +261,7 @@ export const SiemPage = () => {
         label: 'Credential & MFA changes',
         description: 'Recovery, MFA disablement, password, API token, and auth-key changes.',
         severity: 'critical',
-        count: countMatchingEvents(events, credentialChangeEvents),
+        count: countDetection(events, 'credential-security-changes'),
         enabled: ruleState['credential-security-changes'],
       },
       {
@@ -253,7 +269,7 @@ export const SiemPage = () => {
         label: 'Posture failures',
         description: 'Device posture checks that did not meet policy.',
         severity: 'high',
-        count: events.filter((event) => event.event === 'device_posture_check_failed').length,
+        count: countDetection(events, 'posture-failures'),
         enabled: ruleState['posture-failures'],
       },
       {
@@ -261,7 +277,7 @@ export const SiemPage = () => {
         label: 'Infrastructure changes',
         description: 'Gateway, proxy, and security-sensitive settings activity.',
         severity: 'medium',
-        count: countMatchingEvents(events, infrastructureChangeEvents),
+        count: countDetection(events, 'infrastructure-changes'),
         enabled: ruleState['infrastructure-changes'],
       },
     ],
@@ -269,8 +285,13 @@ export const SiemPage = () => {
   );
 
   const activeSources = new Set(events.map((event) => event.module)).size;
-  const openAlerts = events.filter((event) => alertState[String(event.id)] !== 'acknowledged').length;
-  const selectedSeverity = selectedEvent ? getSeverity(selectedEvent.event) : null;
+  const activeAlertEvents = events.filter((event) =>
+    getDetections(event).some((ruleId) => ruleState[ruleId]),
+  );
+  const openAlerts = activeAlertEvents.filter(
+    (event) => alertState[String(event.id)] !== 'acknowledged',
+  ).length;
+  const selectedSeverity = selectedEvent ? getSeverity(selectedEvent) : null;
   const selectedAlertStatus = selectedEvent
     ? alertState[String(selectedEvent.id)] ?? 'open'
     : null;
@@ -317,12 +338,12 @@ export const SiemPage = () => {
           <article className="siem-kpi">
             <span>Open alerts</span>
             <strong>{openAlerts}</strong>
-            <small>Not acknowledged locally</small>
+            <small>Enabled detections, not acknowledged locally</small>
           </article>
           <article className="siem-kpi">
             <span>Critical</span>
             <strong>{severityCounts.critical}</strong>
-            <small>Derived severity</small>
+            <small>Core-classified when available</small>
           </article>
           <article className="siem-kpi">
             <span>Active sources</span>
@@ -337,7 +358,7 @@ export const SiemPage = () => {
               <p className="siem-eyebrow">Detection overview</p>
               <h3>Analyst signals</h3>
             </div>
-            <span className="siem-panel-meta">Rule state persists in this browser</span>
+            <span className="siem-panel-meta">Classification from Core; rule state is browser-local</span>
           </div>
           <div className="siem-detections-grid">
             {detections.map((detection) => (
@@ -441,25 +462,31 @@ export const SiemPage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredEvents.map((event: ActivityLogEvent) => {
-                      const eventSeverity = getSeverity(event.event);
+                    {filteredEvents.map((event) => {
+                      const eventSeverity = getSeverity(event);
+                      const eventDetections = getDetections(event);
                       const networkContext = [event.ip, event.location].filter(Boolean).join(' · ');
                       const isSelected = selectedEvent?.id === event.id;
+                      const isAlert = eventDetections.some((ruleId) => ruleState[ruleId]);
                       const eventStatus = alertState[String(event.id)] ?? 'open';
                       return (
                         <tr
                           className={[
                             isSelected ? 'siem-row-selected' : '',
-                            eventStatus === 'acknowledged' ? 'siem-row-acknowledged' : '',
+                            isAlert && eventStatus === 'acknowledged' ? 'siem-row-acknowledged' : '',
                           ]
                             .filter(Boolean)
                             .join(' ')}
                           key={event.id}
                         >
                           <td>
-                            <span className={`siem-alert-status siem-alert-${eventStatus}`}>
-                              {eventStatus === 'acknowledged' ? 'Acknowledged' : 'Open'}
-                            </span>
+                            {isAlert ? (
+                              <span className={`siem-alert-status siem-alert-${eventStatus}`}>
+                                {eventStatus === 'acknowledged' ? 'Acknowledged' : 'Open'}
+                              </span>
+                            ) : (
+                              <span className="siem-alert-status">Event</span>
+                            )}
                           </td>
                           <td>
                             <span className={`siem-severity siem-severity-${eventSeverity}`}>
@@ -523,19 +550,23 @@ export const SiemPage = () => {
                     <span className={`siem-severity siem-severity-${selectedSeverity}`}>
                       {selectedSeverity}
                     </span>
-                    <span className={`siem-alert-status siem-alert-${selectedAlertStatus}`}>
-                      {selectedAlertStatus === 'acknowledged' ? 'Acknowledged' : 'Open'}
-                    </span>
+                    {getDetections(selectedEvent).some((ruleId) => ruleState[ruleId]) && (
+                      <span className={`siem-alert-status siem-alert-${selectedAlertStatus}`}>
+                        {selectedAlertStatus === 'acknowledged' ? 'Acknowledged' : 'Open'}
+                      </span>
+                    )}
                   </div>
                   <h4>{formatEvent(selectedEvent.event)}</h4>
                   <p>{selectedEvent.description || 'No additional description was recorded.'}</p>
-                  <button
-                    className="siem-alert-action"
-                    type="button"
-                    onClick={() => toggleAlertStatus(selectedEvent.id)}
-                  >
-                    {selectedAlertStatus === 'acknowledged' ? 'Reopen alert' : 'Acknowledge alert'}
-                  </button>
+                  {getDetections(selectedEvent).some((ruleId) => ruleState[ruleId]) && (
+                    <button
+                      className="siem-alert-action"
+                      type="button"
+                      onClick={() => toggleAlertStatus(selectedEvent.id)}
+                    >
+                      {selectedAlertStatus === 'acknowledged' ? 'Reopen alert' : 'Acknowledge alert'}
+                    </button>
+                  )}
                 </div>
 
                 <dl className="siem-event-details">
@@ -578,11 +609,11 @@ export const SiemPage = () => {
         </section>
 
         <section className="siem-footnote">
-          <strong>No Defguard server data is modified by SIEM controls yet.</strong>
+          <strong>Core owns event classification; SIEM controls remain non-destructive.</strong>
           <span>
-            Events come from the existing admin-protected Activity Log API. Detection rule state and
-            alert acknowledgement are stored only in this browser until a reviewed server-side SIEM
-            schema is introduced.
+            Severity and detection metadata come from the Activity Log API when supported, with a
+            compatibility fallback for older Core versions. Rule state and alert acknowledgement
+            remain browser-local until a reviewed server-side persistence schema is introduced.
           </span>
         </section>
       </div>
