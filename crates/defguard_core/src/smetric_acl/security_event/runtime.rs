@@ -22,7 +22,7 @@ pub struct SiemRuntimeConfig {
 #[derive(Debug, thiserror::Error)]
 pub enum SiemRuntimeConfigError {
     #[error("invalid DEFGUARD_SIEM_HTTP_URL: {0}")]
-    InvalidEndpoint(#[source] url::ParseError),
+    InvalidEndpoint(String),
     #[error("invalid integer in {name}: {value}")]
     InvalidInteger { name: &'static str, value: String },
 }
@@ -32,7 +32,8 @@ impl SiemRuntimeConfig {
         let Some(endpoint) = non_empty_env("DEFGUARD_SIEM_HTTP_URL") else {
             return Ok(None);
         };
-        let endpoint = Url::parse(&endpoint).map_err(SiemRuntimeConfigError::InvalidEndpoint)?;
+        let endpoint = Url::parse(&endpoint)
+            .map_err(|error| SiemRuntimeConfigError::InvalidEndpoint(error.to_string()))?;
 
         let timeout_secs = parse_env_u64("DEFGUARD_SIEM_HTTP_TIMEOUT_SECS", DEFAULT_TIMEOUT_SECS)?;
         let batch_size = parse_env_i64("DEFGUARD_SIEM_BATCH_SIZE", DEFAULT_BATCH_SIZE)?;
@@ -85,7 +86,10 @@ pub fn spawn_if_configured(
 }
 
 fn non_empty_env(name: &str) -> Option<String> {
-    env::var(name).ok().map(|value| value.trim().to_owned()).filter(|value| !value.is_empty())
+    env::var(name)
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
 }
 
 fn parse_env_u64(name: &'static str, default: u64) -> Result<u64, SiemRuntimeConfigError> {
