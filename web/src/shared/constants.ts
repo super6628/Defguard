@@ -4,9 +4,9 @@ import { brandConfig } from './branding';
 export const externalLink = {
   defguard: {
     docs: brandConfig.documentationUrl ?? 'https://docs.defguard.net',
-    pricing: 'https://defguard.net/pricing',
-    download: 'https://defguard.net/download',
-    sales: 'https://defguard.net/contact/',
+    pricing: brandConfig.pricingUrl ?? 'https://defguard.net/pricing',
+    download: brandConfig.downloadUrl ?? 'https://defguard.net/download',
+    sales: brandConfig.salesUrl ?? 'https://defguard.net/contact/',
     scheduleCall:
       brandConfig.scheduleCallUrl ??
       'https://docs.google.com/forms/d/e/1FAIpQLSdKr1NXH1DlQuAF5oQWvT7Zri5yPQ3txvwz3qgtb1n9FtKTgw/viewform',
