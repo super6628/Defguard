@@ -27,7 +27,10 @@ impl HttpSiemTransport {
         bearer_token: Option<String>,
         timeout: Duration,
     ) -> Result<Self, reqwest::Error> {
-        let client = Client::builder().timeout(timeout).build()?;
+        let client = Client::builder()
+            .timeout(timeout)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
         Ok(Self {
             client,
             endpoint: endpoint.into(),
@@ -79,10 +82,11 @@ impl TransportError {
     }
 
     fn is_terminal(self) -> bool {
-        matches!(
-            self,
-            Self::HttpStatus(400 | 404 | 405 | 410 | 413 | 414 | 415 | 422)
-        )
+        match self {
+            Self::HttpStatus(status) if (300..400).contains(&status) => true,
+            Self::HttpStatus(400 | 404 | 405 | 410 | 413 | 414 | 415 | 422) => true,
+            _ => false,
+        }
     }
 
     fn is_bounded_configuration_failure(self) -> bool {
@@ -259,6 +263,8 @@ pub async fn dispatch_once(
     Ok(stats)
 }
 
+/// Run the SIEM dispatcher until shutdown is requested. Individual dispatch failures are logged
+/// and retried on the next tick so a database or remote SIEM outage does not terminate the worker.
 pub async fn run_dispatcher(
     pool: PgPool,
     transport: HttpSiemTransport,
