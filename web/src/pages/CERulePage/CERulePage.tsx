@@ -311,7 +311,7 @@ const Content = ({ rule: initialRule, tab }: Props) => {
     () =>
       z
         .object({
-          name: z.string(m.form_error_required()).trim().min(1, m.form_error_required()),
+          name: z.string(m.form_error_required()).min(1, m.form_error_required()),
           locations: z.number().array(),
           expires: z.string().nullable(),
           enabled: z.boolean(),
@@ -342,14 +342,6 @@ const Content = ({ rule: initialRule, tab }: Props) => {
           restrict_devices: z.boolean(),
         })
         .superRefine((vals, ctx) => {
-          if (!vals.all_locations && vals.locations.length === 0) {
-            ctx.addIssue({
-              path: ['locations'],
-              code: 'custom',
-              message: m.form_select_at_least_one(),
-            });
-          }
-
           // check for collisions
           const message = m.acl_rule_error_allow_deny_conflict();
           if (!vals.allow_all_users && !vals.deny_all_users && vals.restrict_users) {
@@ -438,6 +430,7 @@ const Content = ({ rule: initialRule, tab }: Props) => {
             });
           }
 
+          // check if one of allowed users/groups/devices fields is set
           const isAllowConfigured =
             vals.allow_all_users ||
             vals.allow_all_groups ||
@@ -447,29 +440,71 @@ const Content = ({ rule: initialRule, tab }: Props) => {
             vals.allowed_network_devices.length !== 0;
           if (!isAllowConfigured) {
             const message = m.acl_rule_error_permissions_required();
-            ctx.addIssue({ path: ['allowed_users'], code: 'custom', message });
-            ctx.addIssue({ path: ['allowed_groups'], code: 'custom', message });
-            ctx.addIssue({ path: ['allowed_network_devices'], code: 'custom', message });
+            ctx.addIssue({
+              path: ['allowed_users'],
+              code: 'custom',
+              message,
+            });
+            ctx.addIssue({
+              path: ['allowed_groups'],
+              code: 'custom',
+              message,
+            });
+            ctx.addIssue({
+              path: ['allowed_network_devices'],
+              code: 'custom',
+              message,
+            });
           }
 
           if (vals.use_manual_destination_settings) {
             const message = m.acl_rule_error_manual_destination_required();
-            const selectedAliasesList = (aliases ?? []).filter((a) => vals.aliases.has(a.id));
-            const aliasHasAddress = selectedAliasesList.some((a) => a.addresses.trim().length > 0);
-            const aliasHasPort = selectedAliasesList.some((a) => a.ports.trim().length > 0);
-            const aliasHasProtocol = selectedAliasesList.some((a) => a.protocols.length > 0);
-            if (!vals.any_address && vals.addresses.trim().length === 0 && !aliasHasAddress) {
-              ctx.addIssue({ path: ['addresses'], code: 'custom', message });
+            const selectedAliasesList = (aliases ?? []).filter((a) =>
+              vals.aliases.has(a.id),
+            );
+            const aliasHasAddress = selectedAliasesList.some(
+              (a) => a.addresses.trim().length > 0,
+            );
+            const aliasHasPort = selectedAliasesList.some(
+              (a) => a.ports.trim().length > 0,
+            );
+            const aliasHasProtocol = selectedAliasesList.some(
+              (a) => a.protocols.length > 0,
+            );
+            if (
+              !vals.any_address &&
+              vals.addresses.trim().length === 0 &&
+              !aliasHasAddress
+            ) {
+              ctx.addIssue({
+                path: ['addresses'],
+                code: 'custom',
+                message,
+              });
             }
             if (!vals.any_port && vals.ports.trim().length === 0 && !aliasHasPort) {
-              ctx.addIssue({ path: ['ports'], code: 'custom', message });
+              ctx.addIssue({
+                path: ['ports'],
+                code: 'custom',
+                message,
+              });
             }
             if (!vals.any_protocol && vals.protocols.size === 0 && !aliasHasProtocol) {
-              ctx.addIssue({ path: ['protocols'], code: 'custom', message });
+              ctx.addIssue({
+                path: ['protocols'],
+                code: 'custom',
+                message,
+              });
             }
           } else if (vals.destinations.size === 0) {
+            // If no predefined destinations exist, show error under the "Add manual destination settings" checkbox.
+            // If predefined destinations exist - show it at the end of "Destination" section.
             ctx.addIssue({
-              path: [hasPredefinedDestinations ? 'destinations' : 'use_manual_destination_settings'],
+              path: [
+                hasPredefinedDestinations
+                  ? 'destinations'
+                  : 'use_manual_destination_settings',
+              ],
               code: 'custom',
               message: hasPredefinedDestinations
                 ? m.form_error_no_destination()
@@ -491,9 +526,11 @@ const Content = ({ rule: initialRule, tab }: Props) => {
         protocols: new Set(initialRule.protocols),
         expires: null,
         restrict_users: initialRule.deny_all_users || initialRule.denied_users.length > 0,
-        restrict_groups: initialRule.deny_all_groups || initialRule.denied_groups.length > 0,
+        restrict_groups:
+          initialRule.deny_all_groups || initialRule.denied_groups.length > 0,
         restrict_devices:
-          initialRule.deny_all_network_devices || initialRule.denied_network_devices.length > 0,
+          initialRule.deny_all_network_devices ||
+          initialRule.denied_network_devices.length > 0,
       };
     }
 
@@ -533,7 +570,10 @@ const Content = ({ rule: initialRule, tab }: Props) => {
   const form = useAppForm({
     defaultValues,
     validationLogic: formChangeLogic,
-    validators: { onSubmit: formSchema, onChange: formSchema },
+    validators: {
+      onSubmit: formSchema,
+      onChange: formSchema,
+    },
     onSubmit: async ({ value }) => {
       const toSend = omit(cloneDeep(value), [
         'restrict_users',
@@ -586,11 +626,17 @@ const Content = ({ rule: initialRule, tab }: Props) => {
     >
       <form.AppForm>
         <MarkedSection icon="settings">
-          <AppText font={TextStyle.TBodyPrimary600}>{m.acl_rule_section_general_settings()}</AppText>
+          <AppText font={TextStyle.TBodyPrimary600}>
+            {m.acl_rule_section_general_settings()}
+          </AppText>
           <SizedBox height={ThemeSpacing.Xl} />
           <form.AppField name="name">
             {(field) => (
-              <field.FormInput required label={m.acl_rules_col_name()} helper={m.acl_helper_rule_name()} />
+              <field.FormInput
+                required
+                label={m.acl_rules_col_name()}
+                helper={m.acl_helper_rule_name()}
+              />
             )}
           </form.AppField>
           <Divider spacing={ThemeSpacing.Xl2} />
@@ -610,7 +656,9 @@ const Content = ({ rule: initialRule, tab }: Props) => {
                     toggleText={m.acl_rule_include_all_locations()}
                     selectionCustomItemRender={renderLocationSelectionItem}
                     toggleValue={allValue}
-                    onToggleChange={(value) => form.setFieldValue('all_locations', value)}
+                    onToggleChange={(value) => {
+                      form.setFieldValue('all_locations', value);
+                    }}
                   />
                 )}
               </form.AppField>
@@ -619,7 +667,9 @@ const Content = ({ rule: initialRule, tab }: Props) => {
         </MarkedSection>
         <Divider spacing={ThemeSpacing.Xl2} />
         <MarkedSection icon="location-tracking">
-          <AppText font={TextStyle.TBodyPrimary600}>{m.acl_rule_section_destination()}</AppText>
+          <AppText font={TextStyle.TBodyPrimary600}>
+            {m.acl_rule_section_destination()}
+          </AppText>
           <SizedBox height={ThemeSpacing.Sm} />
           <AppText font={TextStyle.TBodySm400} color={ThemeVariable.FgMuted}>
             {m.acl_rule_destinations_description()}
@@ -627,14 +677,19 @@ const Content = ({ rule: initialRule, tab }: Props) => {
           <SizedBox height={ThemeSpacing.Xl2} />
           {isPresent(destinations) && destinations.length === 0 && (
             <div className="no-resource">
-              <div className="icon-box"><img src={emptyDestinationIconSrc} height={40} width={41} /></div>
+              <div className="icon-box">
+                <img src={emptyDestinationIconSrc} height={40} width={41} />
+              </div>
               <p>{m.acl_rule_no_predefined_destinations()}</p>
             </div>
           )}
           {isPresent(destinations) && destinations.length > 0 && (
             <form.AppField name="destinations">
               {(field) => {
-                const selectedDestinations = destinations?.filter((destination) => field.state.value.has(destination.id)) ?? [];
+                const selectedDestinations =
+                  destinations?.filter((destination) =>
+                    field.state.value.has(destination.id),
+                  ) ?? [];
                 return (
                   <>
                     <Button
@@ -648,7 +703,8 @@ const Content = ({ rule: initialRule, tab }: Props) => {
                           selected: new Set(field.state.value),
                           itemGap: 12,
                           enableDividers: true,
-                          onSubmit: (selection) => field.handleChange(new Set(selection as number[])),
+                          onSubmit: (selection) =>
+                            field.handleChange(new Set(selection as number[])),
                           // @ts-expect-error
                           renderItem: renderDestinationSelectionItem,
                         });
@@ -656,7 +712,9 @@ const Content = ({ rule: initialRule, tab }: Props) => {
                     />
                     {selectedDestinations.length > 0 && (
                       <div className="selected-destinations">
-                        <div className="top"><p>{m.acl_rule_selected_destinations()}</p></div>
+                        <div className="top">
+                          <p>{m.acl_rule_selected_destinations()}</p>
+                        </div>
                         <div className="items-track">
                           {selectedDestinations.map((destination) => (
                             <DestinationDismissibleBox
@@ -664,7 +722,9 @@ const Content = ({ rule: initialRule, tab }: Props) => {
                               name={destination.name}
                               addresses={destination.addresses}
                               ports={destination.ports}
-                              protocols={destination.protocols.map((p) => AclProtocolName[p]).join(',')}
+                              protocols={destination.protocols
+                                .map((p) => AclProtocolName[p])
+                                .join(',')}
                               anyAddress={destination.any_address}
                               anyPort={destination.any_port}
                               anyProtocol={destination.any_protocol}
@@ -689,7 +749,9 @@ const Content = ({ rule: initialRule, tab }: Props) => {
           </DescriptionBlock>
           <SizedBox height={ThemeSpacing.Xl} />
           <form.AppField name="use_manual_destination_settings">
-            {(field) => <field.FormCheckbox text={m.acl_rule_add_manual_destination_settings()} />}
+            {(field) => (
+              <field.FormCheckbox text={m.acl_rule_add_manual_destination_settings()} />
+            )}
           </form.AppField>
           <form.Subscribe selector={(s) => s.values.use_manual_destination_settings}>
             {(open) => (
@@ -698,38 +760,56 @@ const Content = ({ rule: initialRule, tab }: Props) => {
                 <Card>
                   {isPresent(aliasesOptions) && aliasesOptions.length === 0 && (
                     <div className="no-resource">
-                      <div className="icon-box"><img src={aliasesEmptyImage} height={40} /></div>
+                      <div className="icon-box">
+                        <img src={aliasesEmptyImage} height={40} />
+                      </div>
                       <p>{m.acl_rule_no_aliases()}</p>
                     </div>
                   )}
                   {isPresent(aliasesOptions) && aliasesOptions.length > 0 && (
                     <>
-                      <DescriptionBlock title={m.cmp_nav_item_aliases()}><p>{m.acl_rule_aliases_description()}</p></DescriptionBlock>
+                      <DescriptionBlock title={m.cmp_nav_item_aliases()}>
+                        <p>{m.acl_rule_aliases_description()}</p>
+                      </DescriptionBlock>
                       <SizedBox height={ThemeSpacing.Lg} />
                       <form.AppField name="aliases">
                         {(field) => (
                           <>
                             <ButtonsGroup>
-                              <Button variant="outlined" text={m.acl_rule_apply_aliases()} disabled={aliasesOptions?.length === 0} onClick={() => {
-                                useSelectionModal.setState({
-                                  isOpen: true,
-                                  onSubmit: (selected) => field.handleChange(new Set(selected as number[])),
-                                  options: aliasesOptions,
-                                  selected: new Set(field.state.value),
-                                  title: m.acl_rule_select_aliases(),
-                                });
-                              }} />
+                              <Button
+                                variant="outlined"
+                                text={m.acl_rule_apply_aliases()}
+                                disabled={aliasesOptions?.length === 0}
+                                onClick={() => {
+                                  useSelectionModal.setState({
+                                    isOpen: true,
+                                    onSubmit: (selected) => {
+                                      field.handleChange(new Set(selected as number[]));
+                                    },
+                                    options: aliasesOptions,
+                                    selected: new Set(field.state.value),
+                                    title: m.acl_rule_select_aliases(),
+                                  });
+                                }}
+                              />
                             </ButtonsGroup>
                             <SizedBox height={ThemeSpacing.Xl} />
                             {isPresent(aliasesOptions) && (
                               <div className="aliases-selected">
-                                {aliasesOptions.filter((alias) => field.state.value.has(alias.id)).map((option) => (
-                                  <Chip size="sm" text={option.label} key={option.id} onDismiss={() => {
-                                    const newState = new Set(field.state.value);
-                                    newState.delete(option.id);
-                                    field.handleChange(newState);
-                                  }} />
-                                ))}
+                                {aliasesOptions
+                                  .filter((alias) => field.state.value.has(alias.id))
+                                  .map((option) => (
+                                    <Chip
+                                      size="sm"
+                                      text={option.label}
+                                      key={option.id}
+                                      onDismiss={() => {
+                                        const newState = new Set(field.state.value);
+                                        newState.delete(option.id);
+                                        field.handleChange(newState);
+                                      }}
+                                    />
+                                  ))}
                               </div>
                             )}
                           </>
@@ -738,64 +818,386 @@ const Content = ({ rule: initialRule, tab }: Props) => {
                     </>
                   )}
                   <Divider spacing={ThemeSpacing.Xl} />
-                  <DescriptionBlock title={m.acl_form_section_addresses_title()}><p>{m.acl_form_section_addresses_description()}</p></DescriptionBlock>
+                  <DescriptionBlock title={m.acl_form_section_addresses_title()}>
+                    <p>{m.acl_form_section_addresses_description()}</p>
+                  </DescriptionBlock>
                   <SizedBox height={ThemeSpacing.Xl} />
-                  <form.AppField name="any_address">{(field) => <field.FormToggle label={m.acl_destination_any_address()} />}</form.AppField>
+                  <form.AppField name="any_address">
+                    {(field) => (
+                      <field.FormToggle label={m.acl_destination_any_address()} />
+                    )}
+                  </form.AppField>
                   <form.Subscribe selector={(s) => !s.values.any_address}>
-                    {(open) => <Fold open={open}><SizedBox height={ThemeSpacing.Xl} /><form.AppField name="addresses">{(field) => <field.FormTextarea label={m.acl_form_addresses_label()} helper={m.acl_helper_addresses()} notNull />}</form.AppField><AliasDataBlock values={flat(selectedAliases.map((alias) => alias.addresses.split(',')))} /></Fold>}
+                    {(open) => (
+                      <Fold open={open}>
+                        <SizedBox height={ThemeSpacing.Xl} />
+                        <form.AppField name="addresses">
+                          {(field) => (
+                            <field.FormTextarea
+                              label={m.acl_form_addresses_label()}
+                              helper={m.acl_helper_addresses()}
+                              notNull
+                            />
+                          )}
+                        </form.AppField>
+                        <AliasDataBlock
+                          values={flat(
+                            selectedAliases.map((alias) => alias.addresses.split(',')),
+                          )}
+                        />
+                      </Fold>
+                    )}
                   </form.Subscribe>
                   <Divider spacing={ThemeSpacing.Xl} />
-                  <DescriptionBlock title={m.acl_form_section_ports_title()}><p>{m.acl_form_section_ports_description()}</p></DescriptionBlock>
+                  <DescriptionBlock title={m.acl_form_section_ports_title()}>
+                    <p>{m.acl_form_section_ports_description()}</p>
+                  </DescriptionBlock>
                   <SizedBox height={ThemeSpacing.Xl} />
-                  <form.AppField name="any_port">{(field) => <field.FormToggle label={m.acl_destination_any_port()} />}</form.AppField>
+                  <form.AppField name="any_port">
+                    {(field) => <field.FormToggle label={m.acl_destination_any_port()} />}
+                  </form.AppField>
                   <form.Subscribe selector={(s) => !s.values.any_port}>
-                    {(open) => <Fold open={open}><SizedBox height={ThemeSpacing.Xl} /><form.AppField name="ports">{(field) => <field.FormInput label={m.acl_form_ports_label()} helper={m.acl_helper_ports()} notNull />}</form.AppField><AliasDataBlock values={flat(selectedAliases.map((alias) => alias.ports.split(',')))} /></Fold>}
+                    {(open) => (
+                      <Fold open={open}>
+                        <SizedBox height={ThemeSpacing.Xl} />
+                        <form.AppField name="ports">
+                          {(field) => (
+                            <field.FormInput
+                              label={m.acl_form_ports_label()}
+                              helper={m.acl_helper_ports()}
+                              notNull
+                            />
+                          )}
+                        </form.AppField>
+                        <AliasDataBlock
+                          values={flat(
+                            selectedAliases.map((alias) => alias.ports.split(',')),
+                          )}
+                        />
+                      </Fold>
+                    )}
                   </form.Subscribe>
                   <Divider spacing={ThemeSpacing.Xl} />
-                  <DescriptionBlock title={m.acl_form_section_protocols_title()}><p>{m.acl_form_section_protocols_description()}</p></DescriptionBlock>
+                  <DescriptionBlock title={m.acl_form_section_protocols_title()}>
+                    <p>{m.acl_form_section_protocols_description()}</p>
+                  </DescriptionBlock>
                   <SizedBox height={ThemeSpacing.Xl} />
-                  <form.AppField name="any_protocol">{(field) => <field.FormToggle label={m.acl_destination_any_protocol()} />}</form.AppField>
+                  <form.AppField name="any_protocol">
+                    {(field) => (
+                      <field.FormToggle label={m.acl_destination_any_protocol()} />
+                    )}
+                  </form.AppField>
                   <form.Subscribe selector={(s) => !s.values.any_protocol}>
-                    {(open) => <Fold open={open}><SizedBox height={ThemeSpacing.Xl2} /><form.AppField name="protocols">{(field) => <field.FormCheckboxGroup values={aclProtocolValues} getLabel={getProtocolName} />}</form.AppField><AliasDataBlock values={flat(selectedAliases.map((alias) => alias.protocols.map((protocol) => AclProtocolName[protocol])))} /></Fold>}
+                    {(open) => (
+                      <Fold open={open}>
+                        <SizedBox height={ThemeSpacing.Xl2} />
+                        <form.AppField name="protocols">
+                          {(field) => (
+                            <field.FormCheckboxGroup
+                              values={aclProtocolValues}
+                              getLabel={getProtocolName}
+                            />
+                          )}
+                        </form.AppField>
+                        <AliasDataBlock
+                          values={flat(
+                            selectedAliases.map((alias) =>
+                              alias.protocols.map(
+                                (protocol) => AclProtocolName[protocol],
+                              ),
+                            ),
+                          )}
+                        />
+                      </Fold>
+                    )}
                   </form.Subscribe>
                 </Card>
               </Fold>
             )}
           </form.Subscribe>
-          <form.AppField name="destinations">{() => <DestinationSelectionError hasPredefinedDestinations={hasPredefinedDestinations} />}</form.AppField>
+          <form.AppField name="destinations">
+            {() => (
+              <DestinationSelectionError
+                hasPredefinedDestinations={hasPredefinedDestinations}
+              />
+            )}
+          </form.AppField>
         </MarkedSection>
         <Divider spacing={ThemeSpacing.Xl2} />
         <MarkedSection icon="enrollment">
-          <AppText font={TextStyle.TBodyPrimary600}>{m.acl_rule_section_permissions()}</AppText>
+          <AppText font={TextStyle.TBodyPrimary600}>
+            {m.acl_rule_section_permissions()}
+          </AppText>
           <SizedBox height={ThemeSpacing.Xl} />
-          <DescriptionBlock title={m.acl_rule_permissions_description_title()}><p>{m.acl_rule_permissions_description()}</p></DescriptionBlock>
+          <DescriptionBlock title={m.acl_rule_permissions_description_title()}>
+            <p>{m.acl_rule_permissions_description()}</p>
+          </DescriptionBlock>
           <SizedBox height={ThemeSpacing.Xl} />
-          {isPresent(usersOptions) && <form.Subscribe selector={(s) => s.values.allow_all_users}>{(allowAllValue) => <form.AppField name="allowed_users">{(field) => <field.FormSelectMultiple toggleValue={allowAllValue} toggleText={m.acl_rule_all_users_have_access()} counterText={getSelectedUsersCounterText} editText={m.acl_rule_edit_users()} modalTitle={m.acl_rule_select_allowed_users()} options={usersOptions} onToggleChange={(value) => form.setFieldValue('allow_all_users', value)} />}</form.AppField>}</form.Subscribe>}
+          {isPresent(usersOptions) && (
+            <form.Subscribe selector={(s) => s.values.allow_all_users}>
+              {(allowAllValue) => (
+                <form.AppField name="allowed_users">
+                  {(field) => (
+                    <field.FormSelectMultiple
+                      toggleValue={allowAllValue}
+                      toggleText={m.acl_rule_all_users_have_access()}
+                      counterText={getSelectedUsersCounterText}
+                      editText={m.acl_rule_edit_users()}
+                      modalTitle={m.acl_rule_select_allowed_users()}
+                      options={usersOptions}
+                      onToggleChange={(value) => {
+                        form.setFieldValue('allow_all_users', value);
+                      }}
+                    />
+                  )}
+                </form.AppField>
+              )}
+            </form.Subscribe>
+          )}
           <Divider spacing={ThemeSpacing.Lg} />
-          {isPresent(groupsOptions) && <form.Subscribe selector={(s) => s.values.allow_all_groups}>{(allAllowedValue) => <form.AppField name="allowed_groups">{(field) => <field.FormSelectMultiple toggleValue={allAllowedValue} onToggleChange={(value) => form.setFieldValue('allow_all_groups', value)} options={groupsOptions} counterText={getSelectedGroupsCounterText} editText={m.location_access_edit_groups()} modalTitle={m.location_access_select_allowed_groups()} toggleText={m.location_access_all_groups_have_access()} />}</form.AppField>}</form.Subscribe>}
+          {isPresent(groupsOptions) && (
+            <form.Subscribe selector={(s) => s.values.allow_all_groups}>
+              {(allAllowedValue) => (
+                <form.AppField name="allowed_groups">
+                  {(field) => (
+                    <field.FormSelectMultiple
+                      toggleValue={allAllowedValue}
+                      onToggleChange={(value) => {
+                        form.setFieldValue('allow_all_groups', value);
+                      }}
+                      options={groupsOptions}
+                      counterText={getSelectedGroupsCounterText}
+                      editText={m.location_access_edit_groups()}
+                      modalTitle={m.location_access_select_allowed_groups()}
+                      toggleText={m.location_access_all_groups_have_access()}
+                    />
+                  )}
+                </form.AppField>
+              )}
+            </form.Subscribe>
+          )}
           <Divider spacing={ThemeSpacing.Lg} />
-          {isPresent(networkDevicesOptions) && <form.Subscribe selector={(s) => s.values.allow_all_network_devices}>{(allowAllValue) => <form.AppField name="allowed_network_devices">{(field) => <field.FormSelectMultiple toggleValue={allowAllValue} onToggleChange={(value) => form.setFieldValue('allow_all_network_devices', value)} options={networkDevicesOptions} counterText={getSelectedNetworkDevicesCounterText} editText={m.acl_rule_edit_network_devices()} modalTitle={m.acl_rule_select_allowed_network_devices()} toggleText={m.acl_rule_all_network_devices_have_access()} />}</form.AppField>}</form.Subscribe>}
+          {isPresent(networkDevicesOptions) && (
+            <form.Subscribe selector={(s) => s.values.allow_all_network_devices}>
+              {(allowAllValue) => (
+                <form.AppField name="allowed_network_devices">
+                  {(field) => (
+                    <field.FormSelectMultiple
+                      toggleValue={allowAllValue}
+                      onToggleChange={(value) => {
+                        form.setFieldValue('allow_all_network_devices', value);
+                      }}
+                      options={networkDevicesOptions}
+                      counterText={getSelectedNetworkDevicesCounterText}
+                      editText={m.acl_rule_edit_network_devices()}
+                      modalTitle={m.acl_rule_select_allowed_network_devices()}
+                      toggleText={m.acl_rule_all_network_devices_have_access()}
+                    />
+                  )}
+                </form.AppField>
+              )}
+            </form.Subscribe>
+          )}
         </MarkedSection>
         <Divider spacing={ThemeSpacing.Xl2} />
         <MarkedSection icon="lock-closed">
-          <AppText font={TextStyle.TBodyPrimary600}>{m.acl_rule_section_restrictions()}</AppText>
+          <AppText font={TextStyle.TBodyPrimary600}>
+            {m.acl_rule_section_restrictions()}
+          </AppText>
           <SizedBox height={ThemeSpacing.Xl} />
-          <DescriptionBlock title={m.acl_rule_limit_access()}><p>{m.acl_rule_limit_access_description()}</p></DescriptionBlock>
+          <DescriptionBlock title={m.acl_rule_limit_access()}>
+            <p>{m.acl_rule_limit_access_description()}</p>
+          </DescriptionBlock>
           <SizedBox height={ThemeSpacing.Xl} />
-          {isPresent(usersOptions) && <form.AppField name="restrict_users">{(field) => <><field.FormCheckbox text={m.acl_rule_limit_access_users()} /><Fold open={field.state.value}><SizedBox height={ThemeSpacing.Xl2} /><form.AppField name="deny_all_users">{(field) => <field.FormRadio text={m.acl_rule_exclude_all_users()} value={true} />}</form.AppField><SizedBox height={ThemeSpacing.Md} /><form.AppField name="deny_all_users">{(field) => <field.FormRadio text={m.acl_rule_exclude_specific_users()} value={false} />}</form.AppField><form.Subscribe selector={(s) => s.values.deny_all_users === false && s.values.restrict_users}>{(open) => <Fold open={open}><SizedBox height={ThemeSpacing.Lg} />{isPresent(usersOptions) && <form.AppField name="denied_users">{(field) => <field.FormSelectMultiple toggleValue={!open} onToggleChange={() => {}} counterText={getSelectedUsersCounterText} editText={m.acl_rule_edit_users()} modalTitle={m.acl_rule_select_restricted_users()} options={usersOptions} />}</form.AppField>}</Fold>}</form.Subscribe></Fold></>}</form.AppField>}
+          {isPresent(usersOptions) && (
+            <form.AppField name="restrict_users">
+              {(field) => (
+                <>
+                  <field.FormCheckbox text={m.acl_rule_limit_access_users()} />
+                  <Fold open={field.state.value}>
+                    <SizedBox height={ThemeSpacing.Xl2} />
+                    <form.AppField name="deny_all_users">
+                      {(field) => (
+                        <field.FormRadio
+                          text={m.acl_rule_exclude_all_users()}
+                          value={true}
+                        />
+                      )}
+                    </form.AppField>
+                    <SizedBox height={ThemeSpacing.Md} />
+                    <form.AppField name="deny_all_users">
+                      {(field) => (
+                        <field.FormRadio
+                          text={m.acl_rule_exclude_specific_users()}
+                          value={false}
+                        />
+                      )}
+                    </form.AppField>
+                    <form.Subscribe
+                      selector={(s) =>
+                        s.values.deny_all_users === false && s.values.restrict_users
+                      }
+                    >
+                      {(open) => (
+                        <Fold open={open}>
+                          <SizedBox height={ThemeSpacing.Lg} />
+                          {isPresent(usersOptions) && (
+                            <form.AppField name="denied_users">
+                              {(field) => (
+                                <field.FormSelectMultiple
+                                  toggleValue={!open}
+                                  onToggleChange={() => {}}
+                                  counterText={getSelectedUsersCounterText}
+                                  editText={m.acl_rule_edit_users()}
+                                  modalTitle={m.acl_rule_select_restricted_users()}
+                                  options={usersOptions}
+                                />
+                              )}
+                            </form.AppField>
+                          )}
+                        </Fold>
+                      )}
+                    </form.Subscribe>
+                  </Fold>
+                </>
+              )}
+            </form.AppField>
+          )}
           <Divider spacing={ThemeSpacing.Lg} />
-          {isPresent(groupsOptions) && <form.AppField name="restrict_groups">{(field) => <><field.FormCheckbox text={m.acl_rule_limit_access_groups()} /><Fold open={field.state.value}><SizedBox height={ThemeSpacing.Xl2} /><form.AppField name="deny_all_groups">{(field) => <field.FormRadio text={m.acl_rule_exclude_all_groups()} value={true} />}</form.AppField><SizedBox height={ThemeSpacing.Md} /><form.AppField name="deny_all_groups">{(field) => <field.FormRadio text={m.acl_rule_exclude_specific_groups()} value={false} />}</form.AppField><form.Subscribe selector={(s) => s.values.deny_all_groups === false && s.values.restrict_groups}>{(open) => <Fold open={open}><SizedBox height={ThemeSpacing.Lg} />{isPresent(groupsOptions) && <form.AppField name="denied_groups">{(field) => <field.FormSelectMultiple toggleValue={!open} onToggleChange={() => {}} counterText={getSelectedGroupsCounterText} editText={m.location_access_edit_groups()} modalTitle={m.acl_rule_select_restricted_groups()} options={groupsOptions} />}</form.AppField>}</Fold>}</form.Subscribe></Fold></>}</form.AppField>}
+          {isPresent(groupsOptions) && (
+            <form.AppField name="restrict_groups">
+              {(field) => (
+                <>
+                  <field.FormCheckbox text={m.acl_rule_limit_access_groups()} />
+                  <Fold open={field.state.value}>
+                    <SizedBox height={ThemeSpacing.Xl2} />
+                    <form.AppField name="deny_all_groups">
+                      {(field) => (
+                        <field.FormRadio
+                          text={m.acl_rule_exclude_all_groups()}
+                          value={true}
+                        />
+                      )}
+                    </form.AppField>
+                    <SizedBox height={ThemeSpacing.Md} />
+                    <form.AppField name="deny_all_groups">
+                      {(field) => (
+                        <field.FormRadio
+                          text={m.acl_rule_exclude_specific_groups()}
+                          value={false}
+                        />
+                      )}
+                    </form.AppField>
+                    <form.Subscribe
+                      selector={(s) =>
+                        s.values.deny_all_groups === false && s.values.restrict_groups
+                      }
+                    >
+                      {(open) => (
+                        <Fold open={open}>
+                          <SizedBox height={ThemeSpacing.Lg} />
+                          {isPresent(groupsOptions) && (
+                            <form.AppField name="denied_groups">
+                              {(field) => (
+                                <field.FormSelectMultiple
+                                  toggleValue={!open}
+                                  onToggleChange={() => {}}
+                                  counterText={getSelectedGroupsCounterText}
+                                  editText={m.location_access_edit_groups()}
+                                  modalTitle={m.acl_rule_select_restricted_groups()}
+                                  options={groupsOptions}
+                                />
+                              )}
+                            </form.AppField>
+                          )}
+                        </Fold>
+                      )}
+                    </form.Subscribe>
+                  </Fold>
+                </>
+              )}
+            </form.AppField>
+          )}
           <Divider spacing={ThemeSpacing.Lg} />
-          {isPresent(networkDevicesOptions) && <form.AppField name="restrict_devices">{(field) => <><field.FormCheckbox text={m.acl_rule_limit_access_network_devices()} disabled={networkDevicesOptions.length === 0} /><Fold open={field.state.value}><SizedBox height={ThemeSpacing.Xl2} /><form.AppField name="deny_all_network_devices">{(field) => <field.FormRadio text={m.acl_rule_exclude_all_network_devices()} value={true} />}</form.AppField><SizedBox height={ThemeSpacing.Md} /><form.AppField name="deny_all_network_devices">{(field) => <field.FormRadio text={m.acl_rule_exclude_specific_network_devices()} value={false} />}</form.AppField><form.Subscribe selector={(s) => s.values.deny_all_network_devices === false && s.values.restrict_devices}>{(open) => <Fold open={open}><SizedBox height={ThemeSpacing.Lg} />{isPresent(networkDevicesOptions) && <form.AppField name="denied_network_devices">{(field) => <field.FormSelectMultiple toggleValue={!open} onToggleChange={() => {}} counterText={getSelectedNetworkDevicesCounterText} editText={m.acl_rule_edit_network_devices()} modalTitle={m.acl_rule_select_restricted_network_devices()} options={networkDevicesOptions} />}</form.AppField>}</Fold>}</form.Subscribe></Fold></>}</form.AppField>}
+          {isPresent(networkDevicesOptions) && (
+            <form.AppField name="restrict_devices">
+              {(field) => (
+                <>
+                  <field.FormCheckbox
+                    text={m.acl_rule_limit_access_network_devices()}
+                    disabled={networkDevicesOptions.length === 0}
+                  />
+                  <Fold open={field.state.value}>
+                    <SizedBox height={ThemeSpacing.Xl2} />
+                    <form.AppField name="deny_all_network_devices">
+                      {(field) => (
+                        <field.FormRadio
+                          text={m.acl_rule_exclude_all_network_devices()}
+                          value={true}
+                        />
+                      )}
+                    </form.AppField>
+                    <SizedBox height={ThemeSpacing.Md} />
+                    <form.AppField name="deny_all_network_devices">
+                      {(field) => (
+                        <field.FormRadio
+                          text={m.acl_rule_exclude_specific_network_devices()}
+                          value={false}
+                        />
+                      )}
+                    </form.AppField>
+                    <form.Subscribe
+                      selector={(s) =>
+                        s.values.deny_all_network_devices === false &&
+                        s.values.restrict_devices
+                      }
+                    >
+                      {(open) => (
+                        <Fold open={open}>
+                          <SizedBox height={ThemeSpacing.Lg} />
+                          {isPresent(networkDevicesOptions) && (
+                            <form.AppField name="denied_network_devices">
+                              {(field) => (
+                                <field.FormSelectMultiple
+                                  toggleValue={!open}
+                                  onToggleChange={() => {}}
+                                  counterText={getSelectedNetworkDevicesCounterText}
+                                  editText={m.acl_rule_edit_network_devices()}
+                                  modalTitle={m.acl_rule_select_restricted_network_devices()}
+                                  options={networkDevicesOptions}
+                                />
+                              )}
+                            </form.AppField>
+                          )}
+                        </Fold>
+                      )}
+                    </form.Subscribe>
+                  </Fold>
+                </>
+              )}
+            </form.AppField>
+          )}
         </MarkedSection>
         <Divider spacing={ThemeSpacing.Xl2} />
         <form.Subscribe selector={(s) => ({ isSubmitting: s.isSubmitting })}>
           {({ isSubmitting }) => (
             <Controls>
-              <form.AppField name="enabled">{(field) => <field.FormToggle label={m.acl_rule_enable()} />}</form.AppField>
+              <form.AppField name="enabled">
+                {(field) => <field.FormToggle label={m.acl_rule_enable()} />}
+              </form.AppField>
               <div className="right">
-                <Button text={m.controls_cancel()} variant="secondary" onClick={() => returnToRules()} />
-                <Button text={isEdit ? m.controls_save_changes() : m.acl_rule_action_create()} type="submit" loading={isSubmitting} />
+                <Button
+                  text={m.controls_cancel()}
+                  variant="secondary"
+                  onClick={() => {
+                    returnToRules();
+                  }}
+                />
+                <Button
+                  text={isEdit ? m.controls_save_changes() : m.acl_rule_action_create()}
+                  type="submit"
+                  loading={isSubmitting}
+                />
               </div>
             </Controls>
           )}
@@ -805,13 +1207,20 @@ const Content = ({ rule: initialRule, tab }: Props) => {
   );
 };
 
-type AliasDataBlockProps = { values: string[] };
+type AliasDataBlockProps = {
+  values: string[];
+};
 
 const normalizeAliasValues = (values: string[]) => {
   const seenValues = new Set<string>();
+
   return values.reduce<string[]>((normalizedValues, value) => {
     const trimmedValue = value.trim();
-    if (trimmedValue.length === 0 || seenValues.has(trimmedValue)) return normalizedValues;
+
+    if (trimmedValue.length === 0 || seenValues.has(trimmedValue)) {
+      return normalizedValues;
+    }
+
     seenValues.add(trimmedValue);
     normalizedValues.push(trimmedValue);
     return normalizedValues;
@@ -820,14 +1229,28 @@ const normalizeAliasValues = (values: string[]) => {
 
 const AliasDataBlock = ({ values }: AliasDataBlockProps) => {
   const normalizedValues = normalizeAliasValues(values);
+
   if (normalizedValues.length === 0) return null;
+
   return (
     <div className="alias-data-block">
-      <div className="top"><p>{m.acl_rule_data_from_aliases()}</p></div>
+      <div className="top">
+        <p>{m.acl_rule_data_from_aliases()}</p>
+      </div>
       <div className="content-track">
-        {normalizedValues.map((value) => <Chip key={value} text={value} />)}
+        {normalizedValues.map((value) => (
+          <Chip key={value} text={value} />
+        ))}
         {normalizedValues.length > 4 && (
-          <button type="button" onClick={() => openModal(ModalName.DisplayList, { title: m.acl_rule_data_from_aliases(), data: normalizedValues })}>
+          <button
+            type="button"
+            onClick={() => {
+              openModal(ModalName.DisplayList, {
+                title: m.acl_rule_data_from_aliases(),
+                data: normalizedValues,
+              });
+            }}
+          >
             <span>{m.acl_rule_show_all_alias_data()}</span>
           </button>
         )}
@@ -836,8 +1259,14 @@ const AliasDataBlock = ({ values }: AliasDataBlockProps) => {
   );
 };
 
-const DestinationSelectionError = ({ hasPredefinedDestinations }: { hasPredefinedDestinations: boolean }) => {
+const DestinationSelectionError = ({
+  hasPredefinedDestinations,
+}: {
+  hasPredefinedDestinations: boolean;
+}) => {
   const error = useFormFieldError();
+
   if (!hasPredefinedDestinations || !error) return null;
+
   return <FieldError error={error} />;
 };
