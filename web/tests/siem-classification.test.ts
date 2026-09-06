@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { ActivityLogEventType } from '../src/shared/api/activity-log-types';
+import {
+  ActivityLogEventType,
+  ActivityLogModule,
+} from '../src/shared/api/activity-log-types';
 import {
   countSiemDetection,
   getEventTypesForSeverity,
@@ -20,7 +23,7 @@ const event = (
   username: 'analyst',
   ip: '192.0.2.1',
   event: eventType,
-  module: 'defguard',
+  module: ActivityLogModule.Defguard,
   device: 'browser',
   ...overrides,
 });
