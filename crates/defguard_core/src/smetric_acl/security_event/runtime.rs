@@ -7,11 +7,11 @@ use tokio::{sync::watch, task::JoinHandle};
 use super::dispatcher::{DispatcherConfig, HttpSiemTransport, run_dispatcher};
 
 const DEFAULT_TIMEOUT_SECS: u64 = 10;
-const DEFAULT_BATCH_SIZE: i64 = 100;
-const DEFAULT_LEASE_SECS: i32 = 60;
+const DEFAULT_BATCH_SIZE: i64 = 32;
+const DEFAULT_LEASE_SECS: i32 = 180;
 const DEFAULT_POLL_SECS: u64 = 5;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct SiemRuntimeConfig {
     pub endpoint: Url,
     pub bearer_token: Option<String>,
@@ -23,8 +23,12 @@ pub struct SiemRuntimeConfig {
 pub enum SiemRuntimeConfigError {
     #[error("invalid DEFGUARD_SIEM_HTTP_URL: {0}")]
     InvalidEndpoint(String),
+    #[error("unsupported DEFGUARD_SIEM_HTTP_URL scheme: {0}; expected http or https")]
+    UnsupportedEndpointScheme(String),
     #[error("invalid integer in {name}: {value}")]
     InvalidInteger { name: &'static str, value: String },
+    #[error("failed to build S-Metric SIEM HTTP client: {0}")]
+    HttpClient(#[source] reqwest::Error),
 }
 
 impl SiemRuntimeConfig {
@@ -34,6 +38,11 @@ impl SiemRuntimeConfig {
         };
         let endpoint = Url::parse(&endpoint)
             .map_err(|error| SiemRuntimeConfigError::InvalidEndpoint(error.to_string()))?;
+        if !matches!(endpoint.scheme(), "http" | "https") {
+            return Err(SiemRuntimeConfigError::UnsupportedEndpointScheme(
+                endpoint.scheme().to_owned(),
+            ));
+        }
 
         let timeout_secs = parse_env_u64("DEFGUARD_SIEM_HTTP_TIMEOUT_SECS", DEFAULT_TIMEOUT_SECS)?;
         let batch_size = parse_env_i64("DEFGUARD_SIEM_BATCH_SIZE", DEFAULT_BATCH_SIZE)?;
@@ -45,7 +54,7 @@ impl SiemRuntimeConfig {
             bearer_token: non_empty_env("DEFGUARD_SIEM_BEARER_TOKEN"),
             request_timeout: Duration::from_secs(timeout_secs.clamp(1, 300)),
             dispatcher: DispatcherConfig {
-                batch_size: batch_size.clamp(1, 500),
+                batch_size: batch_size.clamp(1, 32),
                 lease_seconds: lease_seconds.clamp(5, 3600),
                 poll_interval: Duration::from_secs(poll_secs.clamp(1, 3600)),
             },
@@ -67,7 +76,7 @@ pub fn spawn_if_configured(
         config.bearer_token,
         config.request_timeout,
     )
-    .expect("building the reqwest SIEM client should not fail after config validation");
+    .map_err(SiemRuntimeConfigError::HttpClient)?;
 
     info!(
         endpoint = %config.endpoint,
