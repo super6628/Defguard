@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useAuth } from '../../shared/hooks/useAuth';
 import {
   SIEM_NOTES_STORAGE_KEY,
   parseSiemNotes,
@@ -10,7 +11,8 @@ import { readSiemScopedStorage, writeSiemScopedStorage } from './siem-storage';
 const loadNotes = (username?: string): SiemInvestigationNotes =>
   parseSiemNotes(readSiemScopedStorage(SIEM_NOTES_STORAGE_KEY, username));
 
-export const useSiemInvestigationNotes = (username?: string) => {
+export const useSiemInvestigationNotes = () => {
+  const username = useAuth((state) => state.user?.username);
   const [notes, setNotes] = useState<SiemInvestigationNotes>(() => loadNotes(username));
 
   useEffect(() => {
