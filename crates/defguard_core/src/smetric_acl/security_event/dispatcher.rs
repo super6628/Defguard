@@ -187,12 +187,18 @@ pub async fn run_dispatcher(
     config: DispatcherConfig,
     mut shutdown: watch::Receiver<bool>,
 ) {
+    if *shutdown.borrow() {
+        tracing::debug!("S-Metric SIEM dispatcher not started because shutdown was already requested");
+        return;
+    }
+
     let poll_interval = config.poll_interval.max(Duration::from_millis(250));
     let mut ticker = tokio::time::interval(poll_interval);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
     loop {
         tokio::select! {
+            biased;
             changed = shutdown.changed() => {
                 if changed.is_err() || *shutdown.borrow() {
                     tracing::debug!("S-Metric SIEM dispatcher stopping");
@@ -200,23 +206,35 @@ pub async fn run_dispatcher(
                 }
             }
             _ = ticker.tick() => {
-                match dispatch_once(
+                let dispatch = dispatch_once(
                     &pool,
                     &transport,
                     config.batch_size,
                     config.lease_seconds,
-                ).await {
-                    Ok(stats) if stats.claimed > 0 => {
-                        tracing::info!(
-                            claimed = stats.claimed,
-                            delivered = stats.delivered,
-                            failed = stats.failed,
-                            "S-Metric SIEM dispatch cycle completed"
-                        );
+                );
+                tokio::select! {
+                    biased;
+                    changed = shutdown.changed() => {
+                        if changed.is_err() || *shutdown.borrow() {
+                            tracing::debug!("S-Metric SIEM dispatcher stopping during dispatch");
+                            break;
+                        }
                     }
-                    Ok(_) => {}
-                    Err(error) => {
-                        tracing::error!(%error, "S-Metric SIEM dispatch cycle failed");
+                    result = dispatch => {
+                        match result {
+                            Ok(stats) if stats.claimed > 0 => {
+                                tracing::info!(
+                                    claimed = stats.claimed,
+                                    delivered = stats.delivered,
+                                    failed = stats.failed,
+                                    "S-Metric SIEM dispatch cycle completed"
+                                );
+                            }
+                            Ok(_) => {}
+                            Err(error) => {
+                                tracing::error!(%error, "S-Metric SIEM dispatch cycle failed");
+                            }
+                        }
                     }
                 }
             }
