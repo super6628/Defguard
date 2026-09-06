@@ -202,7 +202,7 @@ async fn main() -> Result<(), anyhow::Error> {
                     println!("User '{}' added to group '{group_name}'.", args.username);
                 }
                 ManageCommand::DisableLdapIntegration => {
-                    disable_ldap_integration(&pool, args).await?;
+                    disable_ldap_integration(&pool).await?;
                     println!(
                         "LDAP integration disabled. Make sure your Defguard instance is offline \
                         when running this command for the change to persist."
