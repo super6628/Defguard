@@ -33,18 +33,46 @@ impl HttpSiemTransport {
         })
     }
 
-    async fn send(&self, event: &QueuedSecurityEvent) -> Result<(), reqwest::Error> {
+    async fn send(&self, event: &QueuedSecurityEvent) -> Result<(), TransportError> {
         let mut request = self.client.post(&self.endpoint).json(&SiemEnvelope::from(event));
         if let Some(token) = &self.bearer_token {
             request = request.bearer_auth(token);
         }
-        request.send().await?.error_for_status()?;
+        let response = request.send().await.map_err(TransportError::from_reqwest)?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(TransportError::HttpStatus(status.as_u16()));
+        }
         Ok(())
     }
 
     fn minimum_lease_seconds(&self) -> i32 {
         let timeout_seconds = self.timeout.as_secs().min(3594);
         i32::try_from(timeout_seconds + 5).unwrap_or(3599)
+    }
+}
+
+#[derive(Clone, Copy, Debug, thiserror::Error)]
+enum TransportError {
+    #[error("SIEM endpoint returned HTTP status {0}")]
+    HttpStatus(u16),
+    #[error("SIEM request timed out")]
+    Timeout,
+    #[error("failed to connect to SIEM endpoint")]
+    Connect,
+    #[error("SIEM HTTP request failed")]
+    Request,
+}
+
+impl TransportError {
+    fn from_reqwest(error: reqwest::Error) -> Self {
+        if error.is_timeout() {
+            Self::Timeout
+        } else if error.is_connect() {
+            Self::Connect
+        } else {
+            Self::Request
+        }
     }
 }
 
