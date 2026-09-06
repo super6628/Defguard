@@ -186,14 +186,20 @@ pub async fn claim_pending(
     .await
 }
 
-/// Mark an event as successfully delivered. Repeated acknowledgements are harmless.
-pub async fn mark_delivered(pool: &PgPool, event_id: Uuid) -> Result<(), sqlx::Error> {
+/// Mark an event as successfully delivered if this acknowledgement still belongs to the latest
+/// claim. A stale worker cannot acknowledge an event after another worker has reclaimed it.
+pub async fn mark_delivered(
+    pool: &PgPool,
+    event_id: Uuid,
+    attempts: i32,
+) -> Result<(), sqlx::Error> {
     sqlx::query(
         "UPDATE smetric_security_event_outbox \
          SET delivered_at = COALESCE(delivered_at, NOW()), last_error = NULL \
-         WHERE event_id = $1",
+         WHERE event_id = $1 AND delivered_at IS NULL AND attempts = $2",
     )
     .bind(event_id)
+    .bind(attempts)
     .execute(pool)
     .await?;
     Ok(())
