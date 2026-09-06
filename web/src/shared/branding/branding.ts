@@ -42,6 +42,7 @@ type ServerBranding = {
 
 const STORAGE_KEY = 'white-label-branding';
 const originalFavicons = new Map<HTMLLinkElement, string>();
+const brandedThemeVariables = ['--brand-primary', '--bg-action', '--border-action', '--fg-action'] as const;
 
 export const brandingDefaults: BrandingConfig = {
   companyName: 'S-Metric',
@@ -153,8 +154,13 @@ export const applyBrandingToDocument = () => {
 
   if (branding.primaryColor) {
     document.documentElement.style.setProperty('--brand-primary', branding.primaryColor);
+    document.documentElement.style.setProperty('--bg-action', branding.primaryColor);
+    document.documentElement.style.setProperty('--border-action', branding.primaryColor);
+    document.documentElement.style.setProperty('--fg-action', branding.primaryColor);
   } else {
-    document.documentElement.style.removeProperty('--brand-primary');
+    brandedThemeVariables.forEach((variable) => {
+      document.documentElement.style.removeProperty(variable);
+    });
   }
 };
 
