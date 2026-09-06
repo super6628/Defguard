@@ -1,6 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
-import { activityLogEventDisplay } from '../../shared/api/activity-log-types';
+import {
+  ActivityLogModule,
+  activityLogEventDisplay,
+  type ActivityLogModuleValue,
+} from '../../shared/api/activity-log-types';
 import api from '../../shared/api/api';
 import type { SiemDetectionRuleId, SiemSeverity } from '../../shared/api/siem-types';
 import type { ActivityLogSortKey } from '../../shared/api/types';
@@ -33,6 +37,7 @@ type DetectionSummary = {
 const PAGE_SIZE = 50;
 const SEARCH_DEBOUNCE_MS = 350;
 const severityOrder: Severity[] = ['critical', 'high', 'medium', 'low'];
+const sourceOptions = Object.values(ActivityLogModule);
 const SIEM_RULES_STORAGE_KEY = 'defguard.siem.rules.v1';
 const SIEM_ALERTS_STORAGE_KEY = 'defguard.siem.alerts.v1';
 
@@ -86,7 +91,7 @@ export const SiemPage = () => {
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [severity, setSeverity] = useState<Severity | 'all'>('all');
-  const [source, setSource] = useState('all');
+  const [source, setSource] = useState<ActivityLogModuleValue | 'all'>('all');
   const [selectedEvent, setSelectedEvent] = useState<SiemActivityLogEvent | null>(null);
   const [ruleState, setRuleState] = useState<PersistedRuleState>(loadRuleState);
   const [alertState, setAlertState] = useState<PersistedAlertState>(loadAlertState);
@@ -117,17 +122,21 @@ export const SiemPage = () => {
   }, [query]);
 
   useEffect(() => {
+    setPage(1);
+  }, [source]);
+
+  useEffect(() => {
     setSelectedEvent(null);
-    setSource('all');
-  }, [page, debouncedQuery]);
+  }, [page, debouncedQuery, source]);
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['siem', 'activity-log', page, debouncedQuery],
+    queryKey: ['siem', 'activity-log', page, debouncedQuery, source],
     queryFn: () =>
       api.getActivityLog({
         page,
         per_page: PAGE_SIZE,
         search: debouncedQuery || undefined,
+        module: source === 'all' ? undefined : [source],
         sort_by: 'timestamp' as ActivityLogSortKey,
         sort_order: 'desc',
       }),
@@ -144,19 +153,12 @@ export const SiemPage = () => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
-  const sources = useMemo(
-    () => Array.from(new Set(events.map((event) => event.module))).sort(),
-    [events],
-  );
-
   const filteredEvents = useMemo(
     () =>
-      events.filter((event) => {
-        const matchesSeverity = severity === 'all' || getSiemSeverity(event) === severity;
-        const matchesSource = source === 'all' || event.module === source;
-        return matchesSeverity && matchesSource;
-      }),
-    [events, severity, source],
+      events.filter(
+        (event) => severity === 'all' || getSiemSeverity(event) === severity,
+      ),
+    [events, severity],
   );
 
   const severityCounts = useMemo(
@@ -230,7 +232,7 @@ export const SiemPage = () => {
 
         <section className="siem-kpis" aria-label="SIEM summary">
           <article className="siem-kpi">
-            <span>{debouncedQuery ? 'Matching events' : 'Total events'}</span>
+            <span>{debouncedQuery || source !== 'all' ? 'Matching events' : 'Total events'}</span>
             <strong>{totalItems}</strong>
             <small>{events.length} loaded on this page</small>
           </article>
@@ -309,7 +311,7 @@ export const SiemPage = () => {
                 />
               </label>
               <label>
-                <span>Severity</span>
+                <span>Severity on page</span>
                 <select
                   value={severity}
                   onChange={(event) => setSeverity(event.target.value as Severity | 'all')}
@@ -323,10 +325,15 @@ export const SiemPage = () => {
                 </select>
               </label>
               <label>
-                <span>Source on page</span>
-                <select value={source} onChange={(event) => setSource(event.target.value)}>
+                <span>Source</span>
+                <select
+                  value={source}
+                  onChange={(event) =>
+                    setSource(event.target.value as ActivityLogModuleValue | 'all')
+                  }
+                >
                   <option value="all">All sources</option>
-                  {sources.map((item) => (
+                  {sourceOptions.map((item) => (
                     <option key={item} value={item}>
                       {item}
                     </option>
@@ -511,9 +518,9 @@ export const SiemPage = () => {
           <strong>Core owns event classification; SIEM controls remain non-destructive.</strong>
           <span>
             Severity and detection metadata come from the Activity Log API when supported, with a
-            compatibility fallback for older Core versions. Text search queries the full Activity
-            Log history; severity and source filters remain page-local until Core exposes those
-            SIEM-specific filters.
+            compatibility fallback for older Core versions. Text search and source filtering query
+            the full Activity Log history; severity remains page-local until Core exposes a
+            SIEM-specific severity filter.
           </span>
         </section>
       </div>
