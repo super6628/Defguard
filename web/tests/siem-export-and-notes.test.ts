@@ -42,6 +42,19 @@ describe('SIEM CSV export', () => {
     expect(csv).toContain('"\'=HYPERLINK(""https://example.invalid"")"');
     expect(csv).toContain('"\'+SUM(1,1)"');
   });
+
+  it('neutralizes formulas hidden behind leading whitespace', () => {
+    const csv = buildSiemCsv([
+      {
+        ...event,
+        username: '  =1+1',
+        description: '\t@SUM(1,1)',
+      },
+    ]);
+
+    expect(csv).toContain("'  =1+1");
+    expect(csv).toContain('"\'\t@SUM(1,1)"');
+  });
 });
 
 describe('SIEM investigation notes', () => {
