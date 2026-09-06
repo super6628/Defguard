@@ -259,6 +259,13 @@ pub async fn get_activity_log_events(
 ) -> PaginatedApiResult<ApiActivityLogEvent> {
     let pagination = pagination.0;
     debug!("Fetching activity log with filters {filters:?} and pagination {pagination}");
+
+    let visible_username = if session_info.is_admin {
+        None
+    } else {
+        Some(session_info.user.username.clone())
+    };
+
     // start with base SELECT query
     // dummy WHERE filter is use to enable composable filtering
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
@@ -267,10 +274,10 @@ pub async fn get_activity_log_events(
     );
 
     // filter events for non-admin users to show only their own events
-    if !session_info.is_admin {
+    if let Some(username) = &visible_username {
         query_builder
             .push(" AND username = ")
-            .push_bind(session_info.user.username)
+            .push_bind(username)
             .push(" ");
     }
 
@@ -298,9 +305,15 @@ pub async fn get_activity_log_events(
     }
 
     // execute count query
-    // fetch total number of filtered events
+    // fetch total number of visible, filtered events
     let mut count_query_builder: QueryBuilder<Postgres> =
         QueryBuilder::new("SELECT COUNT(*) FROM activity_log_event WHERE 1=1 ");
+    if let Some(username) = &visible_username {
+        count_query_builder
+            .push(" AND username = ")
+            .push_bind(username)
+            .push(" ");
+    }
     apply_filters(&mut count_query_builder, &filters);
     let total_items: i64 = count_query_builder
         .build_query_scalar()
