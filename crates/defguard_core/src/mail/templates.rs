@@ -184,7 +184,7 @@ pub(crate) async fn build_new_account_mail(
     context.insert("url", &enrollment_service_url);
     context.insert("token", enrollment_token);
 
-    // Build URL to Proxy's "open desktop" page, with token as query.
+    // Build URL to the Edge component's "open desktop" page, with token as query.
     if let Ok(mut url) = enrollment_service_url.path_segments_mut() {
         url.push("open-desktop");
     }
@@ -556,7 +556,7 @@ pub async fn letsencrypt_cert_refresh_failed_mail(
 
     let now = Utc::now();
     let attachment = Attachment::new(
-        format!("defguard-letsencrypt-refresh-logs-{now}.txt"),
+        format!("s-metric-secure-letsencrypt-refresh-logs-{now}.txt"),
         logs.into(),
     );
     let message = MailMessage::LetsencryptCertRefreshFailed;
