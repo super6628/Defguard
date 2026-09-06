@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 import { m } from '../../../../paraglide/messages';
 import api from '../../../../shared/api/api';
+import { branding } from '../../../../shared/branding/branding';
 import { ActionCard } from '../../../../shared/components/ActionCard/ActionCard';
 import { Controls } from '../../../../shared/components/Controls/Controls';
 import { WizardCard } from '../../../../shared/components/wizard/WizardCard/WizardCard';
@@ -73,11 +74,11 @@ export const SetupConfirmationStep = () => {
         <div className="header">
           <h4>{m.initial_setup_confirmation_header()}</h4>
           <SizedBox height={ThemeSpacing.Sm} />
-          <p>{m.initial_setup_confirmation_lead()}</p>
+          <p>{`You've completed the first stage of the setup. ${branding.productName} is almost ready to go.`}</p>
         </div>
         <Divider spacing={ThemeSpacing.Xl2} />
         <div className="content">
-          <p className="title">{m.initial_setup_confirmation_title()}</p>
+          <p className="title">{`In order to fully deploy ${branding.productName}, you need to create a VPN Location.`}</p>
           <SizedBox height={ThemeSpacing.Md} />
           <ActionCard
             title={m.initial_setup_confirmation_action_title()}

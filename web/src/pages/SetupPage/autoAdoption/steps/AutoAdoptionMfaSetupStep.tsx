@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/react-query';
 import { m } from '../../../../paraglide/messages';
 import api from '../../../../shared/api/api';
 import { LocationMfaMode } from '../../../../shared/api/types';
+import { branding } from '../../../../shared/branding/branding';
 import { businessBadgeProps } from '../../../../shared/components/badges/BusinessBadge';
 import { Controls } from '../../../../shared/components/Controls/Controls';
 import { WizardCard } from '../../../../shared/components/wizard/WizardCard/WizardCard';
@@ -41,8 +42,8 @@ export const AutoAdoptionMfaSetupStep = () => {
         data-testid="mfa-internal"
         value={mfaMode === LocationMfaMode.Internal}
         onClick={() => setMfaMode(LocationMfaMode.Internal)}
-        title={m.initial_setup_auto_adoption_mfa_option_internal_title()}
-        content={m.initial_setup_auto_adoption_mfa_option_internal_content()}
+        title={`Internal ${branding.productName} Multi-Factor Authentication`}
+        content={`Use MFA configured directly in each user's ${branding.productName} profile.`}
       >
         {mfaMode === LocationMfaMode.Internal && (
           <>
@@ -50,7 +51,7 @@ export const AutoAdoptionMfaSetupStep = () => {
             <InfoBanner
               variant="warning"
               icon="info-outlined"
-              text={m.initial_setup_auto_adoption_mfa_option_internal_warning()}
+              text={`After completing the initial ${branding.productName} setup, you will be redirected to configure MFA for your administrator account.`}
             />
           </>
         )}
