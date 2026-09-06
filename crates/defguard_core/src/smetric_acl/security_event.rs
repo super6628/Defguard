@@ -112,6 +112,14 @@ pub struct QueuedSecurityEvent {
     pub attempts: i32,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct SecurityEventOutboxStats {
+    pub ready: i64,
+    pub delayed: i64,
+    pub delivered_retained: i64,
+    pub dead_lettered: i64,
+}
+
 fn insert_query(
     event_id: Uuid,
     event: &NewSecurityEvent,
@@ -150,6 +158,25 @@ pub async fn enqueue_in_transaction(
         .execute(&mut **transaction)
         .await?;
     Ok(event_id)
+}
+
+pub async fn outbox_stats(pool: &PgPool) -> Result<SecurityEventOutboxStats, sqlx::Error> {
+    let row = sqlx::query_as::<_, (i64, i64, i64, i64)>(
+        "SELECT \
+            COUNT(*) FILTER (WHERE delivered_at IS NULL AND dead_lettered_at IS NULL AND next_attempt_at <= NOW())::bigint, \
+            COUNT(*) FILTER (WHERE delivered_at IS NULL AND dead_lettered_at IS NULL AND next_attempt_at > NOW())::bigint, \
+            COUNT(*) FILTER (WHERE delivered_at IS NOT NULL)::bigint, \
+            COUNT(*) FILTER (WHERE dead_lettered_at IS NOT NULL)::bigint \
+         FROM smetric_security_event_outbox",
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(SecurityEventOutboxStats {
+        ready: row.0,
+        delayed: row.1,
+        delivered_retained: row.2,
+        dead_lettered: row.3,
+    })
 }
 
 pub async fn claim_pending(
@@ -256,9 +283,6 @@ pub async fn requeue_dead_lettered(pool: &PgPool, event_id: Uuid) -> Result<bool
     Ok(result.rows_affected() == 1)
 }
 
-/// Requeue at most `limit` dead-lettered events, oldest first. Row locking keeps concurrent recovery
-/// operations from selecting the same events, while resetting attempts gives corrected credentials
-/// or endpoint configuration a fresh delivery window.
 pub async fn requeue_dead_lettered_batch(
     pool: &PgPool,
     limit: i64,
