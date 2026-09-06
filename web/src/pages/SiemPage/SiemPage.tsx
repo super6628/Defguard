@@ -30,6 +30,7 @@ type DetectionSummary = {
   enabled: boolean;
 };
 
+const PAGE_SIZE = 50;
 const severityOrder: Severity[] = ['critical', 'high', 'medium', 'low'];
 const SIEM_RULES_STORAGE_KEY = 'defguard.siem.rules.v1';
 const SIEM_ALERTS_STORAGE_KEY = 'defguard.siem.alerts.v1';
@@ -48,7 +49,6 @@ const criticalEvents = new Set<ActivityLogEventTypeValue>([
   'gateway_deleted',
   'proxy_deleted',
 ]);
-
 const highEvents = new Set<ActivityLogEventTypeValue>([
   'user_login_failed',
   'user_mfa_login_failed',
@@ -60,7 +60,6 @@ const highEvents = new Set<ActivityLogEventTypeValue>([
   'device_removed',
   'network_device_removed',
 ]);
-
 const mediumEvents = new Set<ActivityLogEventTypeValue>([
   'settings_updated',
   'settings_updated_partial',
@@ -72,13 +71,11 @@ const mediumEvents = new Set<ActivityLogEventTypeValue>([
   'gateway_disconnected',
   'proxy_disconnected',
 ]);
-
 const authenticationFailureEvents = new Set<ActivityLogEventTypeValue>([
   'user_login_failed',
   'user_mfa_login_failed',
   'vpn_client_mfa_failed',
 ]);
-
 const credentialChangeEvents = new Set<ActivityLogEventTypeValue>([
   'recovery_code_used',
   'mfa_disabled',
@@ -88,7 +85,6 @@ const credentialChangeEvents = new Set<ActivityLogEventTypeValue>([
   'api_token_added',
   'authentication_key_added',
 ]);
-
 const infrastructureChangeEvents = new Set<ActivityLogEventTypeValue>([
   'gateway_deleted',
   'proxy_deleted',
@@ -108,12 +104,10 @@ const getFallbackSeverity = (event: ActivityLogEventTypeValue): Severity => {
 
 const getFallbackDetections = (event: ActivityLogEventTypeValue): DetectionRuleId[] => {
   const detections: DetectionRuleId[] = [];
-
   if (authenticationFailureEvents.has(event)) detections.push('authentication-failures');
   if (credentialChangeEvents.has(event)) detections.push('credential-security-changes');
   if (event === 'device_posture_check_failed') detections.push('posture-failures');
   if (infrastructureChangeEvents.has(event)) detections.push('infrastructure-changes');
-
   return detections;
 };
 
@@ -131,12 +125,10 @@ const countDetection = (events: SiemActivityLogEvent[], ruleId: DetectionRuleId)
 
 const loadRuleState = (): PersistedRuleState => {
   if (typeof window === 'undefined') return defaultRuleState;
-
   try {
     const stored = window.localStorage.getItem(SIEM_RULES_STORAGE_KEY);
     if (!stored) return defaultRuleState;
     const parsed = JSON.parse(stored) as Partial<Record<DetectionRuleId, unknown>>;
-
     return Object.fromEntries(
       Object.entries(defaultRuleState).map(([id, defaultValue]) => [
         id,
@@ -152,12 +144,10 @@ const loadRuleState = (): PersistedRuleState => {
 
 const loadAlertState = (): PersistedAlertState => {
   if (typeof window === 'undefined') return {};
-
   try {
     const stored = window.localStorage.getItem(SIEM_ALERTS_STORAGE_KEY);
     if (!stored) return {};
     const parsed = JSON.parse(stored) as Record<string, unknown>;
-
     return Object.fromEntries(
       Object.entries(parsed).filter(
         ([, status]) => status === 'open' || status === 'acknowledged',
@@ -169,6 +159,7 @@ const loadAlertState = (): PersistedAlertState => {
 };
 
 export const SiemPage = () => {
+  const [page, setPage] = useState(1);
   const [query, setQuery] = useState('');
   const [severity, setSeverity] = useState<Severity | 'all'>('all');
   const [source, setSource] = useState('all');
@@ -180,7 +171,7 @@ export const SiemPage = () => {
     try {
       window.localStorage.setItem(SIEM_RULES_STORAGE_KEY, JSON.stringify(ruleState));
     } catch {
-      // Local persistence is optional; keep the SIEM workspace functional without it.
+      // Local persistence is optional.
     }
   }, [ruleState]);
 
@@ -188,15 +179,20 @@ export const SiemPage = () => {
     try {
       window.localStorage.setItem(SIEM_ALERTS_STORAGE_KEY, JSON.stringify(alertState));
     } catch {
-      // Local persistence is optional; keep the SIEM workspace functional without it.
+      // Local persistence is optional.
     }
   }, [alertState]);
 
+  useEffect(() => {
+    setSelectedEvent(null);
+  }, [page]);
+
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['siem', 'activity-log'],
+    queryKey: ['siem', 'activity-log', page],
     queryFn: () =>
       api.getActivityLog({
-        page: 1,
+        page,
+        per_page: PAGE_SIZE,
         sort_by: 'timestamp' as ActivityLogSortKey,
         sort_order: 'desc',
       }),
@@ -204,6 +200,15 @@ export const SiemPage = () => {
   });
 
   const events = (data?.data ?? []) as SiemActivityLogEvent[];
+  const pagination = data?.pagination;
+  const totalPages = Math.max(pagination?.total_pages ?? 1, 1);
+  const totalItems = pagination?.total_items ?? events.length;
+  const currentPage = pagination?.current_page ?? page;
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
   const sources = useMemo(
     () => Array.from(new Set(events.map((event) => event.module))).sort(),
     [events],
@@ -211,10 +216,8 @@ export const SiemPage = () => {
 
   const filteredEvents = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-
     return events.filter((event) => {
-      const eventSeverity = getSeverity(event);
-      const matchesSeverity = severity === 'all' || eventSeverity === severity;
+      const matchesSeverity = severity === 'all' || getSeverity(event) === severity;
       const matchesSource = source === 'all' || event.module === source;
       const matchesQuery =
         normalizedQuery.length === 0 ||
@@ -229,7 +232,6 @@ export const SiemPage = () => {
         ]
           .filter(Boolean)
           .some((value) => String(value).toLowerCase().includes(normalizedQuery));
-
       return matchesSeverity && matchesSource && matchesQuery;
     });
   }, [events, query, severity, source]);
@@ -297,10 +299,7 @@ export const SiemPage = () => {
     : null;
 
   const toggleRule = (id: DetectionRuleId) => {
-    setRuleState((current) => ({
-      ...current,
-      [id]: !current[id],
-    }));
+    setRuleState((current) => ({ ...current, [id]: !current[id] }));
   };
 
   const toggleAlertStatus = (eventId: number) => {
@@ -309,6 +308,11 @@ export const SiemPage = () => {
       ...current,
       [key]: current[key] === 'acknowledged' ? 'open' : 'acknowledged',
     }));
+  };
+
+  const changePage = (nextPage: number) => {
+    if (nextPage < 1 || nextPage > totalPages || nextPage === page) return;
+    setPage(nextPage);
   };
 
   return (
@@ -331,24 +335,24 @@ export const SiemPage = () => {
 
         <section className="siem-kpis" aria-label="SIEM summary">
           <article className="siem-kpi">
-            <span>Events loaded</span>
-            <strong>{events.length}</strong>
-            <small>Latest Activity Log page</small>
+            <span>Total events</span>
+            <strong>{totalItems}</strong>
+            <small>{events.length} loaded on this page</small>
           </article>
           <article className="siem-kpi">
             <span>Open alerts</span>
             <strong>{openAlerts}</strong>
-            <small>Enabled detections, not acknowledged locally</small>
+            <small>Current page, enabled detections</small>
           </article>
           <article className="siem-kpi">
             <span>Critical</span>
             <strong>{severityCounts.critical}</strong>
-            <small>Core-classified when available</small>
+            <small>Current page, Core-classified</small>
           </article>
           <article className="siem-kpi">
             <span>Active sources</span>
             <strong>{activeSources}</strong>
-            <small>Defguard modules</small>
+            <small>Current page modules</small>
           </article>
         </section>
 
@@ -358,7 +362,7 @@ export const SiemPage = () => {
               <p className="siem-eyebrow">Detection overview</p>
               <h3>Analyst signals</h3>
             </div>
-            <span className="siem-panel-meta">Classification from Core; rule state is browser-local</span>
+            <span className="siem-panel-meta">Classification from Core; counts reflect this page</span>
           </div>
           <div className="siem-detections-grid">
             {detections.map((detection) => (
@@ -401,7 +405,7 @@ export const SiemPage = () => {
 
             <div className="siem-filters">
               <label className="siem-search">
-                <span>Search</span>
+                <span>Search current page</span>
                 <input
                   type="search"
                   value={query}
@@ -516,6 +520,40 @@ export const SiemPage = () => {
                 </table>
               </div>
             )}
+
+            {!isLoading && !isError && totalPages > 1 && (
+              <div
+                aria-label="Security event pagination"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '12px',
+                  padding: '16px 24px',
+                  borderTop: '1px solid var(--border-default)',
+                }}
+              >
+                <button
+                  className="siem-refresh"
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => changePage(currentPage - 1)}
+                >
+                  Previous
+                </button>
+                <span className="siem-panel-meta">
+                  Page {currentPage} of {totalPages} · {totalItems} events
+                </span>
+                <button
+                  className="siem-refresh"
+                  type="button"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => changePage(currentPage + 1)}
+                >
+                  Next
+                </button>
+              </div>
+            )}
           </div>
 
           <aside className="siem-panel siem-investigation" aria-label="Event investigation">
@@ -570,38 +608,14 @@ export const SiemPage = () => {
                 </div>
 
                 <dl className="siem-event-details">
-                  <div>
-                    <dt>Timestamp</dt>
-                    <dd>{displayDate(selectedEvent.timestamp, 'DD/MM/YYYY HH:mm:ss')}</dd>
-                  </div>
-                  <div>
-                    <dt>Actor</dt>
-                    <dd>{selectedEvent.username || 'System'}</dd>
-                  </div>
-                  <div>
-                    <dt>User ID</dt>
-                    <dd>{selectedEvent.user_id ?? '—'}</dd>
-                  </div>
-                  <div>
-                    <dt>Module</dt>
-                    <dd>{selectedEvent.module}</dd>
-                  </div>
-                  <div>
-                    <dt>IP address</dt>
-                    <dd>{selectedEvent.ip || '—'}</dd>
-                  </div>
-                  <div>
-                    <dt>Location</dt>
-                    <dd>{selectedEvent.location || '—'}</dd>
-                  </div>
-                  <div>
-                    <dt>Device</dt>
-                    <dd>{selectedEvent.device || '—'}</dd>
-                  </div>
-                  <div>
-                    <dt>Event ID</dt>
-                    <dd>{selectedEvent.id}</dd>
-                  </div>
+                  <div><dt>Timestamp</dt><dd>{displayDate(selectedEvent.timestamp, 'DD/MM/YYYY HH:mm:ss')}</dd></div>
+                  <div><dt>Actor</dt><dd>{selectedEvent.username || 'System'}</dd></div>
+                  <div><dt>User ID</dt><dd>{selectedEvent.user_id ?? '—'}</dd></div>
+                  <div><dt>Module</dt><dd>{selectedEvent.module}</dd></div>
+                  <div><dt>IP address</dt><dd>{selectedEvent.ip || '—'}</dd></div>
+                  <div><dt>Location</dt><dd>{selectedEvent.location || '—'}</dd></div>
+                  <div><dt>Device</dt><dd>{selectedEvent.device || '—'}</dd></div>
+                  <div><dt>Event ID</dt><dd>{selectedEvent.id}</dd></div>
                 </dl>
               </div>
             )}
@@ -612,8 +626,8 @@ export const SiemPage = () => {
           <strong>Core owns event classification; SIEM controls remain non-destructive.</strong>
           <span>
             Severity and detection metadata come from the Activity Log API when supported, with a
-            compatibility fallback for older Core versions. Rule state and alert acknowledgement
-            remain browser-local until a reviewed server-side persistence schema is introduced.
+            compatibility fallback for older Core versions. Pagination uses the existing Activity
+            Log API; rule state and acknowledgement remain browser-local.
           </span>
         </section>
       </div>
