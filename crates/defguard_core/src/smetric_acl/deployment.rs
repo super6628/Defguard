@@ -65,7 +65,14 @@ pub async fn reconcile_location(
             "checksum": checksum,
         }),
     );
-    enqueue(pool, &event).await?;
+    if let Err(error) = enqueue(pool, &event).await {
+        tracing::error!(
+            %error,
+            location_id,
+            generation,
+            "Failed to record S-Metric deployment queued SIEM event after gateway command was sent"
+        );
+    }
 
     Ok(1)
 }
