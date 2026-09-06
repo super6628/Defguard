@@ -10,6 +10,7 @@ import type { SiemDetectionRuleId, SiemSeverity } from '../../shared/api/siem-ty
 import type { ActivityLogSortKey } from '../../shared/api/types';
 import { Page } from '../../shared/components/Page/Page';
 import { displayDate } from '../../shared/utils/displayDate';
+import { SiemInvestigationNotes } from './SiemInvestigationNotes';
 import {
   SIEM_RULE_DEFINITIONS,
   countSiemDetection,
@@ -18,6 +19,8 @@ import {
   getSiemSeverity,
   type SiemActivityLogEvent,
 } from './siem-classification';
+import { downloadSiemCsv } from './siem-export';
+import { useSiemInvestigationNotes } from './useSiemInvestigationNotes';
 import './style.scss';
 
 type Severity = SiemSeverity;
@@ -118,6 +121,7 @@ export const SiemPage = () => {
   const [selectedEvent, setSelectedEvent] = useState<SiemActivityLogEvent | null>(null);
   const [ruleState, setRuleState] = useState<PersistedRuleState>(loadRuleState);
   const [alertState, setAlertState] = useState<PersistedAlertState>(loadAlertState);
+  const { getEventNote, setEventNote } = useSiemInvestigationNotes();
 
   useEffect(() => {
     try {
@@ -392,6 +396,14 @@ export const SiemPage = () => {
                 <h3>Security events</h3>
               </div>
               <div className="siem-panel-actions">
+                <button
+                  className="siem-refresh"
+                  type="button"
+                  disabled={visibleEvents.length === 0}
+                  onClick={() => downloadSiemCsv(visibleEvents)}
+                >
+                  Export visible CSV
+                </button>
                 {hasActiveFilters && (
                   <button className="siem-refresh" type="button" onClick={resetFilters}>
                     Reset filters
@@ -668,6 +680,12 @@ export const SiemPage = () => {
                   )}
                 </div>
 
+                <SiemInvestigationNotes
+                  eventId={selectedEvent.id}
+                  initialNote={getEventNote(selectedEvent.id)}
+                  onSave={(note) => setEventNote(selectedEvent.id, note)}
+                />
+
                 <dl className="siem-event-details">
                   <div><dt>Timestamp</dt><dd>{displayDate(selectedEvent.timestamp, 'DD/MM/YYYY HH:mm:ss')}</dd></div>
                   <div><dt>Actor</dt><dd>{selectedEvent.username || 'System'}</dd></div>
@@ -687,8 +705,8 @@ export const SiemPage = () => {
           <strong>Core owns event classification; SIEM controls remain non-destructive.</strong>
           <span>
             Search, severity, source, and time-window filters apply across server history. Detection
-            and acknowledgement filters are page-local because those controls remain browser-local
-            until server-side SIEM alert persistence is introduced.
+            and acknowledgement filters, investigation notes, and CSV export operate on the current
+            browser session/page until server-side SIEM persistence and export APIs are introduced.
           </span>
         </section>
       </div>
