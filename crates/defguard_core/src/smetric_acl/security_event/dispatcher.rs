@@ -116,8 +116,8 @@ pub struct DispatcherConfig {
 impl Default for DispatcherConfig {
     fn default() -> Self {
         Self {
-            batch_size: 100,
-            lease_seconds: 60,
+            batch_size: 32,
+            lease_seconds: 180,
             poll_interval: Duration::from_secs(5),
         }
     }
@@ -195,7 +195,7 @@ pub async fn run_dispatcher(
         tokio::select! {
             changed = shutdown.changed() => {
                 if changed.is_err() || *shutdown.borrow() {
-                    debug!("S-Metric SIEM dispatcher stopping");
+                    tracing::debug!("S-Metric SIEM dispatcher stopping");
                     break;
                 }
             }
@@ -207,7 +207,7 @@ pub async fn run_dispatcher(
                     config.lease_seconds,
                 ).await {
                     Ok(stats) if stats.claimed > 0 => {
-                        info!(
+                        tracing::info!(
                             claimed = stats.claimed,
                             delivered = stats.delivered,
                             failed = stats.failed,
@@ -216,7 +216,7 @@ pub async fn run_dispatcher(
                     }
                     Ok(_) => {}
                     Err(error) => {
-                        error!(%error, "S-Metric SIEM dispatch cycle failed");
+                        tracing::error!(%error, "S-Metric SIEM dispatch cycle failed");
                     }
                 }
             }
