@@ -271,6 +271,9 @@ pub async fn mark_dead_lettered(
     Ok(result.rows_affected() == 1)
 }
 
+/// Requeue one dead-lettered event after an operator has corrected the delivery configuration.
+/// Resetting attempts prevents an immediately requeued authentication failure from being sent
+/// straight back to the dead-letter state.
 pub async fn requeue_dead_lettered(pool: &PgPool, event_id: Uuid) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
         "UPDATE smetric_security_event_outbox \
@@ -283,6 +286,9 @@ pub async fn requeue_dead_lettered(pool: &PgPool, event_id: Uuid) -> Result<bool
     Ok(result.rows_affected() == 1)
 }
 
+/// Requeue at most `limit` dead-lettered events, oldest first. Row locking keeps concurrent recovery
+/// operations from selecting the same events, while resetting attempts gives corrected credentials
+/// or endpoint configuration a fresh delivery window.
 pub async fn requeue_dead_lettered_batch(
     pool: &PgPool,
     limit: i64,
@@ -307,6 +313,9 @@ pub async fn requeue_dead_lettered_batch(
     Ok(result.rows_affected())
 }
 
+/// Delete a bounded batch of successfully delivered events older than the retention window.
+/// Dead-lettered and pending rows are never touched. Row locking lets multiple Core instances
+/// purge concurrently without repeatedly selecting the same retained events.
 pub async fn purge_delivered(
     pool: &PgPool,
     retention_seconds: i64,
@@ -315,14 +324,17 @@ pub async fn purge_delivered(
     let retention_seconds = retention_seconds.clamp(3600, 31_536_000);
     let batch_size = batch_size.clamp(1, 10_000);
     let result = sqlx::query(
-        "DELETE FROM smetric_security_event_outbox \
-         WHERE id IN (\
-             SELECT id FROM smetric_security_event_outbox \
-             WHERE delivered_at IS NOT NULL AND dead_lettered_at IS NULL \
-               AND delivered_at < NOW() - ($1 * INTERVAL '1 second') \
-             ORDER BY delivered_at, id \
-             LIMIT $2\
-         )",
+        "WITH purge_candidates AS (\
+            SELECT id FROM smetric_security_event_outbox \
+            WHERE delivered_at IS NOT NULL AND dead_lettered_at IS NULL \
+              AND delivered_at < NOW() - ($1 * INTERVAL '1 second') \
+            ORDER BY delivered_at, id \
+            FOR UPDATE SKIP LOCKED \
+            LIMIT $2\
+         ) \
+         DELETE FROM smetric_security_event_outbox AS event \
+         USING purge_candidates \
+         WHERE event.id = purge_candidates.id",
     )
     .bind(retention_seconds)
     .bind(batch_size)
