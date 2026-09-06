@@ -1,11 +1,15 @@
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sqlx::{PgPool, Postgres, Transaction};
 
 use super::{
     Action, DefaultAction, Destination, Policy, PortRange, Protocol, Rule, Subject,
     ValidationError, compile, validate,
+};
+use super::security_event::{
+    NewSecurityEvent, SecurityEventCategory, enqueue_in_transaction,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -78,6 +82,7 @@ pub async fn create_policy(
     if input.name.trim().is_empty() {
         return Err(ValidationError::EmptyPolicyName.into());
     }
+    let mut tx = pool.begin().await?;
     let row = sqlx::query_as::<_, (i64, String, Option<String>, bool, String, i64)>(
         "INSERT INTO smetric_acl_policy (name, description, enabled, default_action) VALUES ($1, $2, $3, $4) RETURNING id, name, description, enabled, default_action, revision",
     )
@@ -85,19 +90,26 @@ pub async fn create_policy(
     .bind(input.description)
     .bind(input.enabled)
     .bind(input.default_action.to_string())
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await?;
+    enqueue_policy_event(&mut tx, "created", row.0, None, None).await?;
+    tx.commit().await?;
     summary_from_row(row)
 }
 
 pub async fn delete_policy(pool: &PgPool, policy_id: i64) -> Result<(), ServiceError> {
-    let result = sqlx::query("DELETE FROM smetric_acl_policy WHERE id = $1")
-        .bind(policy_id)
-        .execute(pool)
-        .await?;
-    if result.rows_affected() == 0 {
+    let mut tx = pool.begin().await?;
+    let deleted = sqlx::query_scalar::<_, i64>(
+        "DELETE FROM smetric_acl_policy WHERE id = $1 RETURNING id",
+    )
+    .bind(policy_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if deleted.is_none() {
         return Err(ServiceError::PolicyNotFound(policy_id));
     }
+    enqueue_policy_event(&mut tx, "deleted", policy_id, None, None).await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -110,6 +122,7 @@ pub async fn add_rule(
     ensure_policy(&mut tx, policy_id).await?;
     let row = write_rule_insert(&mut tx, policy_id, input).await?;
     bump_revision(&mut tx, policy_id).await?;
+    enqueue_rule_event(&mut tx, "created", policy_id, row.0).await?;
     tx.commit().await?;
     rule_from_row(row)
 }
@@ -148,6 +161,7 @@ pub async fn update_rule(
     .await?
     .ok_or(ServiceError::RuleNotFound { policy_id, rule_id })?;
     bump_revision(&mut tx, policy_id).await?;
+    enqueue_rule_event(&mut tx, "updated", policy_id, rule_id).await?;
     tx.commit().await?;
     rule_from_row(row)
 }
@@ -170,7 +184,54 @@ pub async fn delete_rule(
         return Err(ServiceError::RuleNotFound { policy_id, rule_id });
     }
     bump_revision(&mut tx, policy_id).await?;
+    enqueue_rule_event(&mut tx, "deleted", policy_id, rule_id).await?;
     tx.commit().await?;
+    Ok(())
+}
+
+async fn enqueue_rule_event(
+    tx: &mut Transaction<'_, Postgres>,
+    action: &'static str,
+    policy_id: i64,
+    rule_id: i64,
+) -> Result<(), ServiceError> {
+    let event = NewSecurityEvent::management(
+        format!("smetric.acl.rule.{action}"),
+        SecurityEventCategory::Firewall,
+        "acl_rule",
+        Some(rule_id.to_string()),
+        format!("S-Metric ACL rule {rule_id} {action}"),
+        json!({
+            "policy_id": policy_id,
+            "rule_id": rule_id,
+            "action": action,
+        }),
+    );
+    enqueue_in_transaction(tx, &event).await?;
+    Ok(())
+}
+
+async fn enqueue_policy_event(
+    tx: &mut Transaction<'_, Postgres>,
+    action: &'static str,
+    policy_id: i64,
+    revision: Option<u64>,
+    checksum: Option<&str>,
+) -> Result<(), ServiceError> {
+    let event = NewSecurityEvent::management(
+        format!("smetric.acl.policy.{action}"),
+        SecurityEventCategory::Firewall,
+        "acl_policy",
+        Some(policy_id.to_string()),
+        format!("S-Metric ACL policy {policy_id} {action}"),
+        json!({
+            "policy_id": policy_id,
+            "action": action,
+            "revision": revision,
+            "checksum": checksum,
+        }),
+    );
+    enqueue_in_transaction(tx, &event).await?;
     Ok(())
 }
 
@@ -277,13 +338,23 @@ pub async fn publish_policy(
     let compiled = compile(policy.clone())?;
     let snapshot = serde_json::to_value(&policy)
         .map_err(|error| ServiceError::InvalidStoredValue(format!("failed to serialize policy snapshot: {error}")))?;
+    let mut tx = pool.begin().await?;
     sqlx::query("INSERT INTO smetric_acl_revision (policy_id, revision, checksum, policy_snapshot) VALUES ($1,$2,$3,$4) ON CONFLICT (policy_id, revision) DO UPDATE SET checksum=EXCLUDED.checksum, policy_snapshot=EXCLUDED.policy_snapshot, compiled_at=NOW()")
         .bind(policy_id)
         .bind(i64::try_from(compiled.revision).map_err(|_| ServiceError::InvalidStoredValue("revision exceeds BIGINT".into()))?)
         .bind(&compiled.checksum)
         .bind(snapshot)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
+    enqueue_policy_event(
+        &mut tx,
+        "published",
+        policy_id,
+        Some(compiled.revision),
+        Some(&compiled.checksum),
+    )
+    .await?;
+    tx.commit().await?;
     Ok(PublishedPolicy {
         policy_id,
         revision: compiled.revision,

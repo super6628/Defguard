@@ -1,5 +1,10 @@
 use serde::Serialize;
+use serde_json::json;
 use sqlx::PgPool;
+
+use super::security_event::{
+    NewSecurityEvent, SecurityEventCategory, SecurityEventSeverity, enqueue_in_transaction,
+};
 
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -210,6 +215,7 @@ pub async fn mark_applied(
     generation: i64,
     checksum: &str,
 ) -> Result<bool, sqlx::Error> {
+    let mut tx = pool.begin().await?;
     let result = sqlx::query(
         "UPDATE smetric_acl_location_deployment_state SET \
            applied_generation=$2, applied_checksum=$3, applied_at=NOW(), \
@@ -220,9 +226,26 @@ pub async fn mark_applied(
     .bind(location_id)
     .bind(generation)
     .bind(checksum)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
-    Ok(result.rows_affected() == 1)
+    let accepted = result.rows_affected() == 1;
+    if accepted {
+        let event = NewSecurityEvent::management(
+            "smetric.deployment.applied",
+            SecurityEventCategory::Deployment,
+            "location",
+            Some(location_id.to_string()),
+            format!("S-Metric deployment generation {generation} applied at location {location_id}"),
+            json!({
+                "location_id": location_id,
+                "generation": generation,
+                "checksum": checksum,
+            }),
+        );
+        enqueue_in_transaction(&mut tx, &event).await?;
+    }
+    tx.commit().await?;
+    Ok(accepted)
 }
 
 pub async fn mark_error(
@@ -231,6 +254,7 @@ pub async fn mark_error(
     generation: i64,
     error: &str,
 ) -> Result<bool, sqlx::Error> {
+    let mut tx = pool.begin().await?;
     let result = sqlx::query(
         "UPDATE smetric_acl_location_deployment_state SET \
            last_error=$3, last_error_at=NOW(), updated_at=NOW() \
@@ -240,7 +264,25 @@ pub async fn mark_error(
     .bind(location_id)
     .bind(generation)
     .bind(error)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
-    Ok(result.rows_affected() == 1)
+    let accepted = result.rows_affected() == 1;
+    if accepted {
+        let mut event = NewSecurityEvent::management(
+            "smetric.deployment.failed",
+            SecurityEventCategory::Deployment,
+            "location",
+            Some(location_id.to_string()),
+            format!("S-Metric deployment generation {generation} failed at location {location_id}"),
+            json!({
+                "location_id": location_id,
+                "generation": generation,
+                "error": error,
+            }),
+        );
+        event.severity = SecurityEventSeverity::Error;
+        enqueue_in_transaction(&mut tx, &event).await?;
+    }
+    tx.commit().await?;
+    Ok(accepted)
 }
