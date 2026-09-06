@@ -187,13 +187,13 @@ pub async fn claim_pending(
 }
 
 /// Mark an event as successfully delivered if this acknowledgement still belongs to the latest
-/// claim. A stale worker cannot acknowledge an event after another worker has reclaimed it.
+/// claim. Returns false when another worker has already reclaimed or completed the event.
 pub async fn mark_delivered(
     pool: &PgPool,
     event_id: Uuid,
     attempts: i32,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
         "UPDATE smetric_security_event_outbox \
          SET delivered_at = COALESCE(delivered_at, NOW()), last_error = NULL \
          WHERE event_id = $1 AND delivered_at IS NULL AND attempts = $2",
@@ -202,21 +202,21 @@ pub async fn mark_delivered(
     .bind(attempts)
     .execute(pool)
     .await?;
-    Ok(())
+    Ok(result.rows_affected() == 1)
 }
 
-/// Release a failed delivery with bounded exponential backoff. The attempt number comes from the
-/// claimed event and therefore also fences this update against a newer worker that reclaimed it.
+/// Release a failed delivery with bounded exponential backoff. Returns false when another worker
+/// has already reclaimed or completed the event.
 pub async fn mark_failed(
     pool: &PgPool,
     event_id: Uuid,
     attempts: i32,
     error: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<bool, sqlx::Error> {
     let exponent = u32::try_from(attempts.saturating_sub(1).clamp(0, 9)).unwrap_or(0);
     let retry_seconds = 5_i64.saturating_mul(1_i64 << exponent).min(3600);
     let error = error.chars().take(MAX_DELIVERY_ERROR_CHARS).collect::<String>();
-    sqlx::query(
+    let result = sqlx::query(
         "UPDATE smetric_security_event_outbox \
          SET next_attempt_at = NOW() + ($2 * INTERVAL '1 second'), last_error = $3 \
          WHERE event_id = $1 AND delivered_at IS NULL AND attempts = $4",
@@ -227,5 +227,5 @@ pub async fn mark_failed(
     .bind(attempts)
     .execute(pool)
     .await?;
-    Ok(())
+    Ok(result.rows_affected() == 1)
 }
