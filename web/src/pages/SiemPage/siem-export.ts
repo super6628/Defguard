@@ -1,8 +1,11 @@
 import type { SiemActivityLogEvent } from './siem-classification';
 import { getSiemDetections, getSiemSeverity } from './siem-classification';
 
+const DANGEROUS_SPREADSHEET_PREFIX = /^[=+\-@]/;
+
 const escapeCsvCell = (value: unknown) => {
-  const text = value == null ? '' : String(value);
+  const rawText = value == null ? '' : String(value);
+  const text = DANGEROUS_SPREADSHEET_PREFIX.test(rawText) ? `'${rawText}` : rawText;
   return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 };
 
