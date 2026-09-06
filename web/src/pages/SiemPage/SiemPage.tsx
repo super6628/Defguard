@@ -23,6 +23,8 @@ import './style.scss';
 type Severity = SiemSeverity;
 type DetectionRuleId = SiemDetectionRuleId;
 type AlertStatus = 'open' | 'acknowledged';
+type AlertView = 'all' | 'alerts' | 'open' | 'acknowledged' | 'events';
+type DetectionView = DetectionRuleId | 'all';
 type TimeRange = 'all' | '1h' | '24h' | '7d' | '30d';
 type PersistedRuleState = Record<DetectionRuleId, boolean>;
 type PersistedAlertState = Record<string, AlertStatus>;
@@ -64,6 +66,9 @@ const getTimeRangeStart = (timeRange: TimeRange, anchorTimestamp: number) => {
   if (timeRange === 'all') return undefined;
   return new Date(anchorTimestamp - timeRangeMs[timeRange]).toISOString();
 };
+
+const getRuleLabel = (ruleId: DetectionRuleId) =>
+  SIEM_RULE_DEFINITIONS.find((rule) => rule.id === ruleId)?.label ?? ruleId;
 
 const loadRuleState = (): PersistedRuleState => {
   if (typeof window === 'undefined') return defaultRuleState;
@@ -108,6 +113,8 @@ export const SiemPage = () => {
   const [source, setSource] = useState<ActivityLogModuleValue | 'all'>('all');
   const [timeRange, setTimeRange] = useState<TimeRange>('all');
   const [timeRangeAnchor, setTimeRangeAnchor] = useState(() => Date.now());
+  const [alertView, setAlertView] = useState<AlertView>('all');
+  const [detectionView, setDetectionView] = useState<DetectionView>('all');
   const [selectedEvent, setSelectedEvent] = useState<SiemActivityLogEvent | null>(null);
   const [ruleState, setRuleState] = useState<PersistedRuleState>(loadRuleState);
   const [alertState, setAlertState] = useState<PersistedAlertState>(loadAlertState);
@@ -184,8 +191,10 @@ export const SiemPage = () => {
   const totalPages = Math.max(pagination?.total_pages ?? 1, 1);
   const totalItems = pagination?.total_items ?? events.length;
   const currentPage = pagination?.current_page ?? page;
-  const hasActiveFilters =
+  const hasServerFilters =
     query.length > 0 || severity !== 'all' || source !== 'all' || timeRange !== 'all';
+  const hasPageFilters = alertView !== 'all' || detectionView !== 'all';
+  const hasActiveFilters = hasServerFilters || hasPageFilters;
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -220,10 +229,34 @@ export const SiemPage = () => {
   const openAlerts = activeAlertEvents.filter(
     (event) => alertState[String(event.id)] !== 'acknowledged',
   ).length;
+
+  const visibleEvents = useMemo(
+    () =>
+      events.filter((event) => {
+        const detections = getSiemDetections(event);
+        const activeDetections = detections.filter((ruleId) => ruleState[ruleId]);
+        const isAlert = activeDetections.length > 0;
+        const status = alertState[String(event.id)] ?? 'open';
+        const matchesDetection =
+          detectionView === 'all' || detections.includes(detectionView);
+        const matchesStatus =
+          alertView === 'all' ||
+          (alertView === 'alerts' && isAlert) ||
+          (alertView === 'events' && !isAlert) ||
+          (alertView === 'open' && isAlert && status === 'open') ||
+          (alertView === 'acknowledged' && isAlert && status === 'acknowledged');
+
+        return matchesDetection && matchesStatus;
+      }),
+    [events, alertState, alertView, detectionView, ruleState],
+  );
+
   const selectedSeverity = selectedEvent ? getSiemSeverity(selectedEvent) : null;
   const selectedAlertStatus = selectedEvent
     ? alertState[String(selectedEvent.id)] ?? 'open'
     : null;
+  const selectedDetections = selectedEvent ? getSiemDetections(selectedEvent) : [];
+  const selectedActiveDetections = selectedDetections.filter((ruleId) => ruleState[ruleId]);
 
   const toggleRule = (id: DetectionRuleId) => {
     setRuleState((current) => ({ ...current, [id]: !current[id] }));
@@ -249,7 +282,15 @@ export const SiemPage = () => {
     setSource('all');
     setTimeRange('all');
     setTimeRangeAnchor(Date.now());
+    setAlertView('all');
+    setDetectionView('all');
     setPage(1);
+    setSelectedEvent(null);
+  };
+
+  const viewDetection = (ruleId: DetectionRuleId) => {
+    setDetectionView(ruleId);
+    setAlertView('all');
     setSelectedEvent(null);
   };
 
@@ -278,7 +319,7 @@ export const SiemPage = () => {
 
         <section className="siem-kpis" aria-label="SIEM summary">
           <article className="siem-kpi">
-            <span>{hasActiveFilters ? 'Matching events' : 'Total events'}</span>
+            <span>{hasServerFilters ? 'Matching events' : 'Total events'}</span>
             <strong>{totalItems}</strong>
             <small>{events.length} loaded on this page</small>
           </article>
@@ -321,14 +362,23 @@ export const SiemPage = () => {
                 </div>
                 <h4>{detection.label}</h4>
                 <p>{detection.description}</p>
-                <button
-                  className="siem-rule-toggle"
-                  type="button"
-                  onClick={() => toggleRule(detection.id)}
-                  aria-pressed={detection.enabled}
-                >
-                  {detection.enabled ? 'Enabled' : 'Paused'}
-                </button>
+                <div className="siem-detection-actions">
+                  <button
+                    className="siem-rule-toggle"
+                    type="button"
+                    onClick={() => toggleRule(detection.id)}
+                    aria-pressed={detection.enabled}
+                  >
+                    {detection.enabled ? 'Enabled' : 'Paused'}
+                  </button>
+                  <button
+                    className="siem-rule-toggle"
+                    type="button"
+                    onClick={() => viewDetection(detection.id)}
+                  >
+                    View matches
+                  </button>
+                </div>
               </article>
             ))}
           </div>
@@ -353,7 +403,7 @@ export const SiemPage = () => {
               </div>
             </div>
 
-            <div className="siem-filters">
+            <div className="siem-filters siem-filters-expanded">
               <label className="siem-search">
                 <span>Search event history</span>
                 <input
@@ -406,7 +456,41 @@ export const SiemPage = () => {
                   <option value="30d">Last 30 days</option>
                 </select>
               </label>
+              <label>
+                <span>Detection on page</span>
+                <select
+                  value={detectionView}
+                  onChange={(event) => setDetectionView(event.target.value as DetectionView)}
+                >
+                  <option value="all">All detections</option>
+                  {SIEM_RULE_DEFINITIONS.map((rule) => (
+                    <option key={rule.id} value={rule.id}>
+                      {rule.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Alert state on page</span>
+                <select
+                  value={alertView}
+                  onChange={(event) => setAlertView(event.target.value as AlertView)}
+                >
+                  <option value="all">All events</option>
+                  <option value="alerts">Alerts only</option>
+                  <option value="open">Open alerts</option>
+                  <option value="acknowledged">Acknowledged alerts</option>
+                  <option value="events">Non-alert events</option>
+                </select>
+              </label>
             </div>
+
+            {hasPageFilters && (
+              <div className="siem-filter-note">
+                Detection and acknowledgement filters apply to the {events.length} events loaded on
+                this page. Search, severity, source, and time window apply across server history.
+              </div>
+            )}
 
             {isLoading && <div className="siem-state">Loading security events…</div>}
             {isError && (
@@ -414,11 +498,11 @@ export const SiemPage = () => {
                 Activity Log data could not be loaded. Use Refresh to retry.
               </div>
             )}
-            {!isLoading && !isError && events.length === 0 && (
+            {!isLoading && !isError && visibleEvents.length === 0 && (
               <div className="siem-state">No security events match the current filters.</div>
             )}
 
-            {!isLoading && !isError && events.length > 0 && (
+            {!isLoading && !isError && visibleEvents.length > 0 && (
               <div className="siem-table-wrap">
                 <table className="siem-table">
                   <thead>
@@ -434,7 +518,7 @@ export const SiemPage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {events.map((event) => {
+                    {visibleEvents.map((event) => {
                       const eventSeverity = getSiemSeverity(event);
                       const eventDetections = getSiemDetections(event);
                       const networkContext = [event.ip, event.location].filter(Boolean).join(' · ');
@@ -500,7 +584,7 @@ export const SiemPage = () => {
                   Previous
                 </button>
                 <span className="siem-panel-meta">
-                  Page {currentPage} of {totalPages} · {totalItems} events
+                  Page {currentPage} of {totalPages} · {totalItems} server-matched events
                 </span>
                 <button
                   className="siem-refresh"
@@ -546,7 +630,7 @@ export const SiemPage = () => {
                     <span className={`siem-severity siem-severity-${selectedSeverity}`}>
                       {selectedSeverity}
                     </span>
-                    {getSiemDetections(selectedEvent).some((ruleId) => ruleState[ruleId]) && (
+                    {selectedActiveDetections.length > 0 && (
                       <span className={`siem-alert-status siem-alert-${selectedAlertStatus}`}>
                         {selectedAlertStatus === 'acknowledged' ? 'Acknowledged' : 'Open'}
                       </span>
@@ -554,7 +638,26 @@ export const SiemPage = () => {
                   </div>
                   <h4>{formatEvent(selectedEvent.event)}</h4>
                   <p>{selectedEvent.description || 'No additional description was recorded.'}</p>
-                  {getSiemDetections(selectedEvent).some((ruleId) => ruleState[ruleId]) && (
+
+                  {selectedDetections.length > 0 && (
+                    <div className="siem-matched-rules">
+                      <span>Matched detections</span>
+                      <div>
+                        {selectedDetections.map((ruleId) => (
+                          <button
+                            type="button"
+                            key={ruleId}
+                            onClick={() => viewDetection(ruleId)}
+                            disabled={!ruleState[ruleId]}
+                          >
+                            {getRuleLabel(ruleId)}{ruleState[ruleId] ? '' : ' · paused'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedActiveDetections.length > 0 && (
                     <button
                       className="siem-alert-action"
                       type="button"
@@ -583,9 +686,9 @@ export const SiemPage = () => {
         <section className="siem-footnote">
           <strong>Core owns event classification; SIEM controls remain non-destructive.</strong>
           <span>
-            Search, severity, source, and time-window filtering all use existing Activity Log API
-            filters. Time-window boundaries remain fixed while paging or background-refreshing the
-            current investigation. Rule enablement and alert acknowledgement remain browser-local.
+            Search, severity, source, and time-window filters apply across server history. Detection
+            and acknowledgement filters are page-local because those controls remain browser-local
+            until server-side SIEM alert persistence is introduced.
           </span>
         </section>
       </div>
