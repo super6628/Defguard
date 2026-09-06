@@ -33,14 +33,6 @@
     </mj-button>
   </mj-column>
 </mj-section>
-<mj-section>
-  <mj-column>
-    <mj-text mj-class="s-xs t-body-xs-400" css-class="fg-muted-c">
-      {{ click }}
-    </mj-text>
-    {{ macros::action_link(href="https://defguard.net/download", text="https://defguard.net/download") }}
-  </mj-column>
-</mj-section>
 {% if scan_qr %}
 <mj-section>
   <mj-column>
