@@ -154,7 +154,7 @@ export const SiemPage = () => {
 
   useEffect(() => {
     setSelectedEvent(null);
-  }, [page, debouncedQuery, severity, source, timeRangeAnchor]);
+  }, [page, debouncedQuery, severity, source, timeRangeAnchor, alertView, detectionView]);
 
   const severityEventTypes = useMemo(
     () => (severity === 'all' ? undefined : getEventTypesForSeverity(severity)),
@@ -196,7 +196,7 @@ export const SiemPage = () => {
   const totalItems = pagination?.total_items ?? events.length;
   const currentPage = pagination?.current_page ?? page;
   const hasServerFilters =
-    query.length > 0 || severity !== 'all' || source !== 'all' || timeRange !== 'all';
+    debouncedQuery.length > 0 || severity !== 'all' || source !== 'all' || timeRange !== 'all';
   const hasPageFilters = alertView !== 'all' || detectionView !== 'all';
   const hasActiveFilters = hasServerFilters || hasPageFilters;
 
