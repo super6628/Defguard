@@ -143,6 +143,13 @@ const navigationConfig: NavGroupProps[] = [
         link: '/activity',
       },
       {
+        id: 'siem',
+        icon: 'log',
+        label: 'SIEM',
+        link: '/siem',
+        testId: 'siem',
+      },
+      {
         id: 'network_devices',
         icon: 'devices',
         label: m.cmp_nav_item_network_devices(),
