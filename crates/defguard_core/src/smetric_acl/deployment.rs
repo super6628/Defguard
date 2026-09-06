@@ -1,4 +1,5 @@
 use defguard_common::gateway_event::GatewayCommand;
+use serde_json::json;
 use sqlx::PgPool;
 use tokio::sync::broadcast::Sender;
 
@@ -6,6 +7,7 @@ use super::{
     gateway::GatewayEnforcementError,
     location_deployment::{ensure_desired as ensure_location_desired, mark_error as mark_location_error},
     location_effective::compile_location_firewall,
+    security_event::{NewSecurityEvent, SecurityEventCategory, enqueue},
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -31,7 +33,8 @@ pub async fn reconcile_location(
     location_id: i64,
 ) -> Result<usize, ReconcileError> {
     let effective = compile_location_firewall(pool, location_id).await?;
-    let generation = ensure_location_desired(pool, location_id, &effective.checksum).await?;
+    let checksum = effective.checksum.clone();
+    let generation = ensure_location_desired(pool, location_id, &checksum).await?;
 
     if gateway_tx
         .send(GatewayCommand::FirewallConfigChanged(
@@ -49,6 +52,20 @@ pub async fn reconcile_location(
         .await;
         return Err(ReconcileError::GatewayChannelClosed(location_id));
     }
+
+    let event = NewSecurityEvent::management(
+        "smetric.deployment.queued",
+        SecurityEventCategory::Deployment,
+        "location",
+        Some(location_id.to_string()),
+        format!("S-Metric deployment generation {generation} queued for location {location_id}"),
+        json!({
+            "location_id": location_id,
+            "generation": generation,
+            "checksum": checksum,
+        }),
+    );
+    enqueue(pool, &event).await?;
 
     Ok(1)
 }
