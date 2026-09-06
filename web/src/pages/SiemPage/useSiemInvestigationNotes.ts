@@ -5,26 +5,21 @@ import {
   updateSiemNote,
   type SiemInvestigationNotes,
 } from './siem-notes';
+import { readSiemScopedStorage, writeSiemScopedStorage } from './siem-storage';
 
-const loadNotes = (): SiemInvestigationNotes => {
-  if (typeof window === 'undefined') return {};
-  try {
-    return parseSiemNotes(window.localStorage.getItem(SIEM_NOTES_STORAGE_KEY));
-  } catch {
-    return {};
-  }
-};
+const loadNotes = (username?: string): SiemInvestigationNotes =>
+  parseSiemNotes(readSiemScopedStorage(SIEM_NOTES_STORAGE_KEY, username));
 
-export const useSiemInvestigationNotes = () => {
-  const [notes, setNotes] = useState<SiemInvestigationNotes>(loadNotes);
+export const useSiemInvestigationNotes = (username?: string) => {
+  const [notes, setNotes] = useState<SiemInvestigationNotes>(() => loadNotes(username));
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(SIEM_NOTES_STORAGE_KEY, JSON.stringify(notes));
-    } catch {
-      // Local persistence is optional.
-    }
-  }, [notes]);
+    setNotes(loadNotes(username));
+  }, [username]);
+
+  useEffect(() => {
+    writeSiemScopedStorage(SIEM_NOTES_STORAGE_KEY, username, JSON.stringify(notes));
+  }, [notes, username]);
 
   const setEventNote = (eventId: number, note: string) => {
     setNotes((current) => updateSiemNote(current, eventId, note));
