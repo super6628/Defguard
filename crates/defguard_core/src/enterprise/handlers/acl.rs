@@ -37,6 +37,7 @@ pub struct ApiAclRule {
     pub locations: Vec<Id>,
     pub expires: Option<NaiveDateTime>,
     pub enabled: bool,
+    // source
     pub allow_all_users: bool,
     pub deny_all_users: bool,
     pub allow_all_groups: bool,
@@ -49,6 +50,7 @@ pub struct ApiAclRule {
     pub denied_groups: Vec<Id>,
     pub allowed_network_devices: Vec<Id>,
     pub denied_network_devices: Vec<Id>,
+    // destination
     pub use_manual_destination_settings: bool,
     pub addresses: String,
     pub ports: String,
@@ -56,6 +58,7 @@ pub struct ApiAclRule {
     pub any_address: bool,
     pub any_port: bool,
     pub any_protocol: bool,
+    // aliases
     pub aliases: Vec<Id>,
     pub destinations: Vec<Id>,
 }
@@ -98,6 +101,7 @@ impl From<AclRuleInfo<Id>> for ApiAclRule {
     }
 }
 
+/// An ACL rule, as accepted when creating or updating one.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, ToSchema)]
 pub struct EditAclRule {
     pub name: String,
@@ -105,6 +109,7 @@ pub struct EditAclRule {
     pub locations: Vec<Id>,
     pub expires: Option<NaiveDateTime>,
     pub enabled: bool,
+    // source
     pub allow_all_users: bool,
     pub deny_all_users: bool,
     pub allow_all_groups: bool,
@@ -117,6 +122,7 @@ pub struct EditAclRule {
     pub denied_groups: Vec<Id>,
     pub allowed_network_devices: Vec<Id>,
     pub denied_network_devices: Vec<Id>,
+    // destination
     pub use_manual_destination_settings: bool,
     pub addresses: String,
     pub ports: String,
@@ -124,6 +130,7 @@ pub struct EditAclRule {
     pub any_address: bool,
     pub any_port: bool,
     pub any_protocol: bool,
+    // aliases & destinations
     pub aliases: Vec<Id>,
     pub destinations: Vec<Id>,
 }
@@ -133,13 +140,11 @@ impl EditAclRule {
         if self.name.trim().is_empty() {
             return Err(WebError::BadRequest("Rule name cannot be empty".to_owned()));
         }
-
         if !self.all_locations && self.locations.is_empty() {
             return Err(WebError::BadRequest(
                 "Must provide at least one location when all locations are disabled".to_owned(),
             ));
         }
-
         if self.allow_all_users && self.deny_all_users {
             return Err(WebError::BadRequest(
                 "Cannot allow and deny all users at the same time".to_owned(),
@@ -155,7 +160,6 @@ impl EditAclRule {
                 "Cannot allow and deny all network devices at the same time".to_owned(),
             ));
         }
-
         if self.allowed_users.iter().any(|id| self.denied_users.contains(id)) {
             return Err(WebError::BadRequest(
                 "A user cannot be both allowed and denied in the same rule".to_owned(),
@@ -177,7 +181,11 @@ impl EditAclRule {
         }
 
         if self.use_manual_destination_settings {
-            let (alias_has_address, alias_has_port, alias_has_protocol) = if self.aliases.is_empty() {
+            // Determine what the selected component aliases collectively contribute.
+            // Note: Component-kind aliases always have any_address/any_port/any_protocol = false,
+            // so we only check whether they have non-empty arrays.
+            let (alias_has_address, alias_has_port, alias_has_protocol) = if self.aliases.is_empty()
+            {
                 (false, false, false)
             } else {
                 let row = query_as::<_, (Option<bool>, Option<bool>, Option<bool>)>(
@@ -220,9 +228,12 @@ impl EditAclRule {
                 ));
             }
         } else if self.destinations.is_empty() {
-            return Err(WebError::BadRequest("Must provide destination alias".to_owned()));
+            return Err(WebError::BadRequest(
+                "Must provide destination alias".to_owned(),
+            ));
         }
 
+        // check if some allowed users/group/devices are configured
         if !self.allow_all_users
             && !self.allow_all_groups
             && !self.allow_all_network_devices
@@ -283,7 +294,26 @@ pub struct AclStateCount {
     pub pending: i64,
 }
 
-#[utoipa::path(get, path = "/api/v1/acl/rule", tag = "ACL", params(("page" = Option<u32>, Query), ("per_page" = Option<u32>, Query)), responses((status = 200, body = PaginatedApiResponse<ApiAclRule>)), security(("cookie" = []), ("api_token" = [])))]
+/// List ACL rules
+#[utoipa::path(
+    get,
+    path = "/api/v1/acl/rule",
+    tag = "ACL",
+    params(
+        ("page" = Option<u32>, Query, description = "Page number. Defaults to 1."),
+        ("per_page" = Option<u32>, Query, description = "Number of items per page, from 1 to 100. Defaults to 50."),
+    ),
+    responses(
+        (status = 200, description = "Paginated list of ACL rules.", body = PaginatedApiResponse<ApiAclRule>),
+        (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
+        (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
+        (status = 500, description = "Unable to list ACL rules.", body = ApiErrorResponse, example = json!({"msg": "Internal server error"})),
+    ),
+    security(
+        ("cookie" = []),
+        ("api_token" = [])
+    )
+)]
 pub(crate) async fn list_acl_rules(
     _admin: AdminRole,
     State(appstate): State<AppState>,
@@ -291,7 +321,9 @@ pub(crate) async fn list_acl_rules(
     pagination: Query<PaginationParams>,
 ) -> PaginatedApiResult<ApiAclRule> {
     let pagination = pagination.0;
+
     debug!("User {} listing ACL rules", session.user.username);
+
     let mut conn = appstate.pool.acquire().await?;
     let rules = AclRule::all_paginated(
         &mut *conn,
@@ -301,28 +333,78 @@ pub(crate) async fn list_acl_rules(
     .await?;
     let mut api_rules = Vec::with_capacity(rules.len());
     for rule in &rules {
+        // TODO: may require optimisation wrt. sql queries
         let info = rule.to_info(&mut conn).await.map_err(|err| {
             error!("Error retrieving ACL rule {rule:?}: {err}");
             err
         })?;
         api_rules.push(info.into());
     }
+
     info!("User {} listed ACL rules", session.user.username);
+
     let count = AclRule::count(&mut *conn).await?;
-    Ok(PaginatedApiResponse::new(api_rules, pagination, count as u32))
+    Ok(PaginatedApiResponse::new(
+        api_rules,
+        pagination,
+        count as u32,
+    ))
 }
 
-#[utoipa::path(get, path = "/api/v1/acl/rule/count", tag = "ACL", responses((status = 200, body = AclStateCount)), security(("cookie" = []), ("api_token" = [])))]
-pub(crate) async fn count_acl_rules(_admin: AdminRole, State(appstate): State<AppState>) -> ApiResult {
+/// Count ACL rules by state
+#[utoipa::path(
+    get,
+    path = "/api/v1/acl/rule/count",
+    tag = "ACL",
+    responses(
+        (status = 200, description = "Number of ACL rules in each state.", body = AclStateCount),
+        (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
+        (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
+        (status = 500, description = "Unable to count ACL rules.", body = ApiErrorResponse, example = json!({"msg": "Internal server error"})),
+    ),
+    security(
+        ("cookie" = []),
+        ("api_token" = [])
+    )
+)]
+pub(crate) async fn count_acl_rules(
+    _admin: AdminRole,
+    State(appstate): State<AppState>,
+) -> ApiResult {
     let counts = query_as::<_, AclStateCount>(
-        "SELECT COUNT(*) FILTER (WHERE state = 'applied'::aclrule_state) AS applied, COUNT(*) FILTER (WHERE state IN ('new'::aclrule_state, 'modified'::aclrule_state, 'deleted'::aclrule_state)) AS pending FROM aclrule",
+        "SELECT \
+            COUNT(*) FILTER (WHERE state = 'applied'::aclrule_state) AS applied, \
+            COUNT(*) FILTER ( \
+                WHERE state IN ('new'::aclrule_state, 'modified'::aclrule_state, 'deleted'::aclrule_state) \
+            ) AS pending \
+        FROM aclrule",
     )
     .fetch_one(&appstate.pool)
     .await?;
+
     Ok(ApiResponse::json(counts, StatusCode::OK))
 }
 
-#[utoipa::path(get, path = "/api/v1/acl/rule/{id}", tag = "ACL", params(("id" = i64, Path)), responses((status = 200, body = ApiAclRule)))]
+/// Get an ACL rule
+#[utoipa::path(
+    get,
+    path = "/api/v1/acl/rule/{id}",
+    tag = "ACL",
+    params(
+        ("id" = i64, Path, description = "ID of the ACL rule.",)
+    ),
+    responses(
+        (status = 200, description = "ACL rule details.", body = ApiAclRule),
+        (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
+        (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
+        (status = 404, description = "ACL rule not found."),
+        (status = 500, description = "Unable to get ACL rule.", body = ApiErrorResponse, example = json!({"msg": "Internal server error"})),
+    ),
+    security(
+        ("cookie" = []),
+        ("api_token" = [])
+    )
+)]
 pub(crate) async fn get_acl_rule(
     _license: LicenseInfo,
     _admin: AdminRole,
@@ -334,19 +416,40 @@ pub(crate) async fn get_acl_rule(
     let mut conn = appstate.pool.acquire().await?;
     let (rule, status) = match AclRule::find_by_id(&mut *conn, id).await? {
         Some(rule) => (
-            json!(ApiAclRule::from(rule.to_info(&mut conn).await.map_err(|err| {
-                error!("Error retrieving ACL rule {rule:?}: {err}");
-                err
-            })?)),
+            json!(ApiAclRule::from(rule.to_info(&mut conn).await.map_err(
+                |err| {
+                    error!("Error retrieving ACL rule {rule:?}: {err}");
+                    err
+                }
+            )?)),
             StatusCode::OK,
         ),
         None => (Value::Null, StatusCode::NOT_FOUND),
     };
+
     info!("User {} retrieved ACL rule {id}", session.user.username);
     Ok(ApiResponse::new(rule, status))
 }
 
-#[utoipa::path(post, path = "/api/v1/acl/rule", tag = "ACL", request_body = EditAclRule, responses((status = 201, body = ApiAclRule)))]
+/// Create an ACL rule
+#[utoipa::path(
+    post,
+    path = "/api/v1/acl/rule",
+    tag = "ACL",
+    request_body(content = EditAclRule, description = "The rule starts working after `PUT /api/v1/acl/rule/apply`.", example = json!({"name": "allow-web", "all_locations": false, "locations": [1], "enabled": true, "allow_all_users": false, "deny_all_users": false, "allow_all_groups": false, "deny_all_groups": false, "allow_all_network_devices": false, "deny_all_network_devices": false, "allowed_users": [1], "denied_users": [], "allowed_groups": [], "denied_groups": [], "allowed_network_devices": [], "denied_network_devices": [], "use_manual_destination_settings": true, "addresses": "10.0.0.0/24", "ports": "80, 443", "protocols": [6], "any_address": false, "any_port": false, "any_protocol": false, "aliases": [], "destinations": [], "expires": null})),
+    responses(
+        (status = 201, description = "ACL rule created.", body = ApiAclRule),
+        (status = 400, description = "Cannot use a modified alias in an ACL rule.", body = ApiErrorResponse, example = json!({"msg": "Cannot use modified alias in ACL rule [1]"})),
+        (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
+        (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
+        (status = 422, description = "Invalid addresses, ports or protocols.", body = ApiErrorResponse, example = json!({"msg": "Unprocessable entity"})),
+        (status = 500, description = "Unable to create ACL rule.", body = ApiErrorResponse, example = json!({"msg": "Internal server error"})),
+    ),
+    security(
+        ("cookie" = []),
+        ("api_token" = [])
+    )
+)]
 pub(crate) async fn create_acl_rule(
     _license: LicenseInfo,
     _admin: AdminRole,
@@ -355,6 +458,7 @@ pub(crate) async fn create_acl_rule(
     Json(data): Json<EditAclRule>,
 ) -> ApiResult {
     debug!("User {} creating ACL rule {data:?}", session.user.username);
+
     let mut tx = appstate.pool.begin().await?;
     data.validate(&mut tx).await?;
     let rule = AclRule::create_from_api(&mut tx, &data, &session.user.username)
@@ -364,11 +468,36 @@ pub(crate) async fn create_acl_rule(
             err
         })?;
     tx.commit().await?;
-    info!("User {} created ACL rule {}", session.user.username, rule.id);
+    info!(
+        "User {} created ACL rule {}",
+        session.user.username, rule.id
+    );
     Ok(ApiResponse::json(rule, StatusCode::CREATED))
 }
 
-#[utoipa::path(put, path = "/api/v1/acl/rule/{id}", tag = "ACL", params(("id" = i64, Path)), request_body = EditAclRule, responses((status = 200, body = ApiAclRule)))]
+/// Update an ACL rule
+#[utoipa::path(
+    put,
+    path = "/api/v1/acl/rule/{id}",
+    tag = "ACL",
+    params(
+        ("id" = i64, Path, description = "ID of the ACL rule.",)
+    ),
+    request_body = EditAclRule,
+    responses(
+        (status = 200, description = "ACL rule updated.", body = ApiAclRule),
+        (status = 400, description = "Cannot modify a deleted ACL rule.", body = ApiErrorResponse, example = json!({"msg": "Cannot modify deleted ACL rule 1"})),
+        (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
+        (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
+        (status = 404, description = "ACL rule not found.", body = ApiErrorResponse, example = json!({"msg": "Rule 1 not found"})),
+        (status = 422, description = "Invalid addresses, ports or protocols.", body = ApiErrorResponse, example = json!({"msg": "Unprocessable entity"})),
+        (status = 500, description = "Unable to update ACL rule.", body = ApiErrorResponse, example = json!({"msg": "Internal server error"})),
+    ),
+    security(
+        ("cookie" = []),
+        ("api_token" = [])
+    )
+)]
 pub(crate) async fn update_acl_rule(
     _license: LicenseInfo,
     _admin: AdminRole,
@@ -378,6 +507,7 @@ pub(crate) async fn update_acl_rule(
     Json(data): Json<EditAclRule>,
 ) -> ApiResult {
     debug!("User {} updating ACL rule {data:?}", session.user.username);
+
     let mut tx = appstate.pool.begin().await?;
     data.validate(&mut tx).await?;
     let rule = AclRule::update_from_api(&mut tx, id, &data, &session.user.username)
@@ -391,7 +521,26 @@ pub(crate) async fn update_acl_rule(
     Ok(ApiResponse::json(rule, StatusCode::OK))
 }
 
-#[utoipa::path(delete, path = "/api/v1/acl/rule/{id}", tag = "ACL", params(("id" = i64, Path)), responses((status = 200)))]
+/// Delete an ACL rule
+#[utoipa::path(
+    delete,
+    path = "/api/v1/acl/rule/{id}",
+    tag = "ACL",
+    params(
+        ("id" = i64, Path, description = "ID of the ACL rule.",)
+    ),
+    responses(
+        (status = 200, description = "ACL rule deleted."),
+        (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
+        (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
+        (status = 404, description = "ACL rule not found.", body = ApiErrorResponse, example = json!({"msg": "Rule 1 not found"})),
+        (status = 500, description = "Unable to delete ACL rule.", body = ApiErrorResponse, example = json!({"msg": "Internal server error"})),
+    ),
+    security(
+        ("cookie" = []),
+        ("api_token" = [])
+    )
+)]
 pub(crate) async fn delete_acl_rule(
     _license: LicenseInfo,
     _admin: AdminRole,
@@ -410,7 +559,25 @@ pub(crate) async fn delete_acl_rule(
     Ok(ApiResponse::default())
 }
 
-#[utoipa::path(put, path = "/api/v1/acl/rule/apply", tag = "ACL", request_body = ApplyAclRulesData, responses((status = 200)))]
+/// Apply ACL rules
+#[utoipa::path(
+    put,
+    path = "/api/v1/acl/rule/apply",
+    tag = "ACL",
+    request_body = ApplyAclRulesData,
+    responses(
+        (status = 200, description = "Pending rule changes applied."),
+        (status = 400, description = "ACL rule is already applied.", body = ApiErrorResponse, example = json!({"msg": "Rule 1 already applied"})),
+        (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
+        (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
+        (status = 404, description = "ACL rule not found.", body = ApiErrorResponse, example = json!({"msg": "Rule 1 not found"})),
+        (status = 500, description = "Unable to apply ACL rules.", body = ApiErrorResponse, example = json!({"msg": "Internal server error"})),
+    ),
+    security(
+        ("cookie" = []),
+        ("api_token" = [])
+    )
+)]
 pub(crate) async fn apply_acl_rules(
     _license: LicenseInfo,
     _admin: AdminRole,
@@ -424,7 +591,10 @@ pub(crate) async fn apply_acl_rules(
         ));
     }
 
-    debug!("User {} applying ACL rules: {:?}", session.user.username, data.rules);
+    debug!(
+        "User {} applying ACL rules: {:?}",
+        session.user.username, data.rules
+    );
     AclRule::apply_rules(
         &data.rules,
         &session.user.username,
@@ -436,6 +606,9 @@ pub(crate) async fn apply_acl_rules(
         error!("Error applying ACL rules {data:?}: {err}");
         err
     })?;
-    info!("User {} applied ACL rules: {:?}", session.user.username, data.rules);
+    info!(
+        "User {} applied ACL rules: {:?}",
+        session.user.username, data.rules
+    );
     Ok(ApiResponse::default())
 }
