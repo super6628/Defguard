@@ -244,6 +244,21 @@ pub async fn mark_dead_lettered(
     Ok(result.rows_affected() == 1)
 }
 
+/// Requeue one dead-lettered event after an operator has corrected the delivery configuration.
+/// Resetting attempts prevents an immediately requeued authentication failure from being sent
+/// straight back to the dead-letter state.
+pub async fn requeue_dead_lettered(pool: &PgPool, event_id: Uuid) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE smetric_security_event_outbox \
+         SET dead_lettered_at = NULL, attempts = 0, next_attempt_at = NOW(), last_error = NULL \
+         WHERE event_id = $1 AND delivered_at IS NULL AND dead_lettered_at IS NOT NULL",
+    )
+    .bind(event_id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() == 1)
+}
+
 pub async fn purge_delivered(
     pool: &PgPool,
     retention_seconds: i64,
