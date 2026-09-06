@@ -11,7 +11,7 @@ use super::{
 };
 
 const MAX_DISPATCH_CONCURRENCY: i64 = 32;
-const MAX_CONFIGURATION_FAILURE_ATTEMPTS: i32 = 12;
+const MAX_CONFIGURATION_FAILURE_ATTEMPTS: i64 = 12;
 
 #[derive(Clone)]
 pub struct HttpSiemTransport {
@@ -101,7 +101,7 @@ struct SiemEnvelope<'a> {
     subject: SiemSubject<'a>,
     description: &'a str,
     payload: &'a serde_json::Value,
-    delivery_attempt: i32,
+    delivery_attempt: i64,
 }
 
 #[derive(Debug, Serialize)]
