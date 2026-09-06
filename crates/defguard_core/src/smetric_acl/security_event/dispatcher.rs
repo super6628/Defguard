@@ -51,7 +51,7 @@ impl HttpSiemTransport {
 #[derive(Debug, Serialize)]
 struct SiemEnvelope<'a> {
     schema: &'static str,
-    event_id: uuid::Uuid,
+    event_id: String,
     event_type: &'a str,
     category: &'a str,
     severity: &'a str,
@@ -66,7 +66,7 @@ struct SiemEnvelope<'a> {
 struct SiemActor<'a> {
     user_id: Option<i64>,
     username: Option<&'a str>,
-    ip: Option<std::net::IpAddr>,
+    ip: Option<&'a str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -79,14 +79,14 @@ impl<'a> From<&'a QueuedSecurityEvent> for SiemEnvelope<'a> {
     fn from(event: &'a QueuedSecurityEvent) -> Self {
         Self {
             schema: "smetric.security_event.v1",
-            event_id: event.event_id,
+            event_id: event.event_id.to_string(),
             event_type: &event.event_type,
             category: &event.category,
             severity: &event.severity,
             actor: SiemActor {
                 user_id: event.actor_user_id,
                 username: event.actor_username.as_deref(),
-                ip: event.actor_ip,
+                ip: event.actor_ip.as_deref(),
             },
             subject: SiemSubject {
                 r#type: &event.subject_type,
