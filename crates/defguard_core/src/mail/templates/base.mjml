@@ -165,26 +165,19 @@
   <mj-body background-color="#fff">
     <mj-section padding="40px 0 48px 0">
       <mj-column>
-        <mj-image src="cid:defguard" alt="Defguard logo" width="129px" height="32px" align="left" />
+        <mj-text mj-class="t-title-h3" css-class="fg-default-c">
+          S-Metric Secure
+        </mj-text>
       </mj-column>
     </mj-section>
     {% block content %}
     {% endblock content %}
     <mj-section>
-      <mj-group>
-        <mj-column vertical-align="middle">
-          <mj-text mj-class="t-body-xs-400" css-class="fg-faded-c">
-            Copyright © 2026 <a style="text-decoration: none; color: inherit" mj-class="t-body-xs-400" css-class="fg-action-c link" href="https://defguard.net">Defguard</a>
-          </mj-text>
-        </mj-column>
-        <mj-column vertical-align="middle">
-          <mj-social mode="horizontal" align="right" icon-size="18px" inner-padding="16px">
-            <mj-social-element src="cid:github" alt="GitHub logo" href="https://github.com/DefGuard" />
-            <mj-social-element src="cid:mastodon" alt="Mastodon logo" href="https://floss.social/@defguard" />
-            <mj-social-element src="cid:x" alt="X logo" href="https://x.com/defguard_net" />
-          </mj-social>
-        </mj-column>
-      </mj-group>
+      <mj-column vertical-align="middle">
+        <mj-text mj-class="t-body-xs-400" css-class="fg-faded-c">
+          Copyright © 2026 S-Metric
+        </mj-text>
+      </mj-column>
     </mj-section>
     <mj-section padding="0 0 132px 0">
     </mj-section>
