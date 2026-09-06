@@ -19,8 +19,6 @@ use super::{Attachment, Mail, MailError, MailMessage};
 
 pub(crate) const DEFAULT_LANG: &str = "en_US";
 
-pub static SUPPORT_EMAIL_ADDRESS: &str = "support@defguard.net";
-
 static BASE_MJML: &str = include_str!("templates/base.mjml");
 static MACROS_MJML: &str = include_str!("templates/macros.mjml");
 static MAIL_DATETIME_FORMAT: &str = "%A, %B %d, %Y at %r";
@@ -502,88 +500,17 @@ pub async fn new_device_login_mail(
     Ok(())
 }
 
-/// New device login from OpenID Connect.
 pub async fn new_device_oidc_login_mail(
     to: &str,
     conn: &mut PgConnection,
     session: Option<&SessionContext>,
-    oauth2client_name: &str,
-    username: &str,
+    client_name: &str,
 ) -> Result<(), TemplateError> {
     let (mut tera, mut context) = get_base_tera_mjml(Context::new(), session, None, None)?;
 
-    let url = format!("{}user/{}", Settings::url()?, username);
-    context.insert("oauth2client_name", &oauth2client_name);
-    context.insert("profile_url", &url);
+    context.insert("client_name", client_name);
 
     let message = MailMessage::NewDeviceOIDCLogin;
-    message.fill_context(conn, &mut context).await?;
-    message.mail(&mut tera, &context, to)?.send_and_forget();
-
-    Ok(())
-}
-
-/// Notification about disconnected Gateway.
-pub async fn gateway_disconnected_mail(
-    to: &str,
-    conn: &mut PgConnection,
-    gateway_name: &str,
-    gateway_ip_address: &str,
-    location_name: &str,
-) -> Result<(), TemplateError> {
-    let (mut tera, mut context) = get_base_tera_mjml(Context::new(), None, None, None)?;
-
-    context.insert("gateway_name", gateway_name);
-    context.insert("ip_address", gateway_ip_address);
-    context.insert("location_name", location_name);
-
-    let message = MailMessage::GatewayDisconnect;
-    message.fill_context(conn, &mut context).await?;
-    message.mail(&mut tera, &context, to)?.send_and_forget();
-
-    Ok(())
-}
-
-/// Notification about failed Letsencrypt cert refresh process.
-pub async fn letsencrypt_cert_refresh_failed_mail(
-    to: &str,
-    conn: &mut PgConnection,
-    error_message: &str,
-    logs: &str,
-) -> Result<(), TemplateError> {
-    let (mut tera, mut context) = get_base_tera_mjml(Context::new(), None, None, None)?;
-    context.insert("error_message", error_message);
-
-    let now = Utc::now();
-    let attachment = Attachment::new(
-        format!("s-metric-secure-letsencrypt-refresh-logs-{now}.txt"),
-        logs.into(),
-    );
-    let message = MailMessage::LetsencryptCertRefreshFailed;
-    message.fill_context(conn, &mut context).await?;
-    message
-        .mail(&mut tera, &context, to)?
-        .set_attachments(vec![attachment])
-        .send_and_forget();
-
-    Ok(())
-}
-
-/// Notification about reconnected Gateway.
-pub async fn gateway_reconnected_mail(
-    to: &str,
-    conn: &mut PgConnection,
-    gateway_name: &str,
-    gateway_ip_address: &str,
-    location_name: &str,
-) -> Result<(), TemplateError> {
-    let (mut tera, mut context) = get_base_tera_mjml(Context::new(), None, None, None)?;
-
-    context.insert("gateway_name", gateway_name);
-    context.insert("ip_address", gateway_ip_address);
-    context.insert("location_name", location_name);
-
-    let message = MailMessage::GatewayReconnect;
     message.fill_context(conn, &mut context).await?;
     message.mail(&mut tera, &context, to)?.send_and_forget();
 
@@ -593,31 +520,13 @@ pub async fn gateway_reconnected_mail(
 pub async fn mfa_activation_mail(
     to: &str,
     conn: &mut PgConnection,
-    first_name: &str,
-    code: &str,
-    session: Option<&SessionContext>,
-    send_and_forget: bool,
+    context: Context,
 ) -> Result<(), TemplateError> {
-    let (mut tera, mut context) = get_base_tera_mjml(Context::new(), session, None, None)?;
-    let settings = Settings::get_current_settings();
-    let timeout = humantime::format_duration(Duration::from_secs(
-        settings.mfa_code_timeout_seconds as u64,
-    ));
-    context.insert("code", code);
-    context.insert("timeout", &timeout.to_string());
-    context.insert("username", first_name);
-    context.insert(
-        "datetime",
-        &Utc::now().format(MAIL_DATETIME_FORMAT).to_string(),
-    );
+    let (mut tera, mut context) = get_base_tera_mjml(context, None, None, None)?;
 
     let message = MailMessage::MFAActivation;
     message.fill_context(conn, &mut context).await?;
-    if send_and_forget {
-        message.mail(&mut tera, &context, to)?.send_and_forget();
-    } else {
-        message.mail(&mut tera, &context, to)?.send().await?;
-    }
+    message.mail(&mut tera, &context, to)?.send().await?;
 
     Ok(())
 }
@@ -625,74 +534,37 @@ pub async fn mfa_activation_mail(
 pub async fn mfa_code_mail(
     to: &str,
     conn: &mut PgConnection,
-    first_name: &str,
-    code: &str,
-    session: Option<&SessionContext>,
-    send_and_forget: bool,
+    context: Context,
 ) -> Result<(), TemplateError> {
-    let (mut tera, mut context) = get_base_tera_mjml(Context::new(), session, None, None)?;
-    let settings = Settings::get_current_settings();
-    let timeout = humantime::format_duration(Duration::from_secs(
-        settings.mfa_code_timeout_seconds as u64,
-    ));
-    context.insert("code", code);
-    context.insert("timeout", &timeout.to_string());
-    context.insert("username", first_name);
-    context.insert(
-        "datetime",
-        &Utc::now().format(MAIL_DATETIME_FORMAT).to_string(),
-    );
+    let (mut tera, mut context) = get_base_tera_mjml(context, None, None, None)?;
 
     let message = MailMessage::MFACode;
     message.fill_context(conn, &mut context).await?;
-    if send_and_forget {
-        message.mail(&mut tera, &context, to)?.send_and_forget();
-    } else {
-        message.mail(&mut tera, &context, to)?.send().await?;
-    }
+    message.mail(&mut tera, &context, to)?.send().await?;
 
     Ok(())
 }
 
-/// Password reset email.
 pub async fn password_reset_mail(
     to: &str,
     conn: &mut PgConnection,
-    mut service_url: Url,
-    password_reset_token: &str,
-    ip_address: Option<&str>,
-    device_info: Option<&str>,
+    context: Context,
 ) -> Result<(), TemplateError> {
-    let (mut tera, mut context) =
-        get_base_tera_mjml(Context::new(), None, ip_address, device_info)?;
-
-    context.insert("enrollment_url", &service_url);
-    context.insert("defguard_url", &Settings::url()?);
-    context.insert("token", password_reset_token);
-
-    service_url.set_path("/password-reset");
-    service_url
-        .query_pairs_mut()
-        .append_pair("token", password_reset_token);
-
-    context.insert("link_url", &service_url);
+    let (mut tera, mut context) = get_base_tera_mjml(context, None, None, None)?;
 
     let message = MailMessage::PasswordReset;
     message.fill_context(conn, &mut context).await?;
-    message.mail(&mut tera, &context, to)?.send_and_forget();
+    message.mail(&mut tera, &context, to)?.send().await?;
 
     Ok(())
 }
 
-/// Successful password reset email.
-pub async fn password_reset_success_mail(
+pub async fn password_reset_done_mail(
     to: &str,
     conn: &mut PgConnection,
-    ip_address: Option<&str>,
-    device_info: Option<&str>,
+    context: Context,
 ) -> Result<(), TemplateError> {
-    let (mut tera, mut context) =
-        get_base_tera_mjml(Context::new(), None, ip_address, device_info)?;
+    let (mut tera, mut context) = get_base_tera_mjml(context, None, None, None)?;
 
     let message = MailMessage::PasswordResetDone;
     message.fill_context(conn, &mut context).await?;
@@ -701,15 +573,12 @@ pub async fn password_reset_success_mail(
     Ok(())
 }
 
-/// Notification that password reset has been disabled for this user.
 pub async fn password_reset_disabled_mail(
     to: &str,
     conn: &mut PgConnection,
-    ip_address: Option<&str>,
-    device_info: Option<&str>,
+    context: Context,
 ) -> Result<(), TemplateError> {
-    let (mut tera, mut context) =
-        get_base_tera_mjml(Context::new(), None, ip_address, device_info)?;
+    let (mut tera, mut context) = get_base_tera_mjml(context, None, None, None)?;
 
     let message = MailMessage::PasswordResetDisabled;
     message.fill_context(conn, &mut context).await?;
@@ -718,83 +587,95 @@ pub async fn password_reset_disabled_mail(
     Ok(())
 }
 
-/// Certificate is about to expire.
+pub async fn gateway_disconnected_mail(
+    to: &str,
+    conn: &mut PgConnection,
+    gateway_name: &str,
+    gateway_address: &str,
+    network_name: &str,
+) -> Result<(), TemplateError> {
+    let (mut tera, mut context) = get_base_tera_mjml(Context::new(), None, None, None)?;
+
+    context.insert("gateway_name", gateway_name);
+    context.insert("gateway_address", gateway_address);
+    context.insert("network_name", network_name);
+
+    let message = MailMessage::GatewayDisconnect;
+    message.fill_context(conn, &mut context).await?;
+    message.mail(&mut tera, &context, to)?.send_and_forget();
+
+    Ok(())
+}
+
+pub async fn gateway_reconnected_mail(
+    to: &str,
+    conn: &mut PgConnection,
+    gateway_name: &str,
+    gateway_address: &str,
+    network_name: &str,
+) -> Result<(), TemplateError> {
+    let (mut tera, mut context) = get_base_tera_mjml(Context::new(), None, None, None)?;
+
+    context.insert("gateway_name", gateway_name);
+    context.insert("gateway_address", gateway_address);
+    context.insert("network_name", network_name);
+
+    let message = MailMessage::GatewayReconnect;
+    message.fill_context(conn, &mut context).await?;
+    message.mail(&mut tera, &context, to)?.send_and_forget();
+
+    Ok(())
+}
+
+pub async fn letsencrypt_cert_refresh_failed_mail(
+    to: &str,
+    conn: &mut PgConnection,
+    domain: &str,
+    error: &str,
+    logs: &str,
+) -> Result<(), TemplateError> {
+    let (mut tera, mut context) = get_base_tera_mjml(Context::new(), None, None, None)?;
+
+    context.insert("domain", domain);
+    context.insert("error", error);
+
+    let message = MailMessage::LetsencryptCertRefreshFailed;
+    message.fill_context(conn, &mut context).await?;
+    let now = Utc::now();
+    let attachment = Attachment::new(
+        format!("s-metric-secure-letsencrypt-refresh-logs-{now}.txt"),
+        logs.as_bytes().to_vec(),
+    );
+    message
+        .mail(&mut tera, &context, to)?
+        .set_attachments(vec![attachment])
+        .send_and_forget();
+
+    Ok(())
+}
+
 pub async fn certificate_expiration_mail(
     to: &str,
     conn: &mut PgConnection,
-    certificate_type: &str,
-    expiration: NaiveDateTime,
+    domain: &str,
+    expires_at: NaiveDateTime,
+    expired: bool,
 ) -> Result<(), TemplateError> {
     let (mut tera, mut context) = get_base_tera_mjml(Context::new(), None, None, None)?;
 
-    context.insert("cert_type", certificate_type);
+    context.insert("domain", domain);
     context.insert(
-        "exp_date",
-        &expiration.format(MAIL_DATETIME_FORMAT).to_string(),
+        "expires_at",
+        &expires_at.format(MAIL_DATETIME_FORMAT).to_string(),
     );
 
-    let message = MailMessage::CertificateExpiration;
+    let message = if expired {
+        MailMessage::CertificateExpired
+    } else {
+        MailMessage::CertificateExpiration
+    };
     message.fill_context(conn, &mut context).await?;
     message.mail(&mut tera, &context, to)?.send_and_forget();
 
     Ok(())
-}
-
-/// Certificate has expired.
-pub async fn certificate_expired_mail(
-    to: &str,
-    conn: &mut PgConnection,
-    certificate_type: &str,
-    expiration: NaiveDateTime,
-) -> Result<(), TemplateError> {
-    let (mut tera, mut context) = get_base_tera_mjml(Context::new(), None, None, None)?;
-
-    context.insert("cert_type", certificate_type);
-    context.insert(
-        "exp_date",
-        &expiration.format(MAIL_DATETIME_FORMAT).to_string(),
-    );
-
-    let message = MailMessage::CertificateExpired;
-    message.fill_context(conn, &mut context).await?;
-    message.mail(&mut tera, &context, to)?.send_and_forget();
-
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use super::format_timeout;
-
-    #[test]
-    fn test_formats_weeks() {
-        assert_eq!(format_timeout(Duration::from_hours(168)), "1 week");
-        assert_eq!(format_timeout(Duration::from_hours(336)), "2 weeks");
-    }
-
-    #[test]
-    fn test_formats_days() {
-        assert_eq!(format_timeout(Duration::from_hours(24)), "1 day");
-        assert_eq!(format_timeout(Duration::from_hours(48)), "2 days");
-    }
-
-    #[test]
-    fn test_formats_hours() {
-        assert_eq!(format_timeout(Duration::from_hours(1)), "1 hour");
-        assert_eq!(format_timeout(Duration::from_hours(23)), "23 hours");
-    }
-
-    #[test]
-    fn test_formats_minutes() {
-        assert_eq!(format_timeout(Duration::from_mins(1)), "1 minute");
-        assert_eq!(format_timeout(Duration::from_mins(30)), "30 minutes");
-    }
-
-    #[test]
-    fn test_formats_seconds() {
-        assert_eq!(format_timeout(Duration::from_secs(1)), "1 second");
-        assert_eq!(format_timeout(Duration::from_secs(90)), "90 seconds");
-    }
 }
