@@ -9,7 +9,11 @@ use axum_extra::{
     },
     headers::UserAgent,
 };
-use base64::{Engine, prelude::BASE64_STANDARD};
+use base64::{
+    Engine,
+    engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD},
+    prelude::BASE64_STANDARD,
+};
 use defguard_common::{
     config::server_config,
     db::{
@@ -39,7 +43,7 @@ use super::LicenseInfo;
 use crate::{
     appstate::AppState,
     enterprise::{
-        db::models::openid_provider::OpenIdProvider,
+        db::models::openid_provider::{OpenIdProvider, OpenIdProviderKind},
         directory_sync::{sync_user_groups_if_configured, user_in_directory_groups},
         ldap::utils::ldap_update_user_state,
         license::get_cached_license,
@@ -110,6 +114,97 @@ fn reached_user_license_limit() -> Option<(u32, u32)> {
     user_limit
         .filter(|limit| user_count >= *limit)
         .map(|limit| (user_count, limit))
+}
+
+#[derive(Debug, Deserialize)]
+struct MicrosoftIdTokenClaims {
+    tid: String,
+    #[serde(default)]
+    amr: Vec<String>,
+}
+
+fn microsoft_tenant_from_base_url(base_url: &str) -> Result<String, WebError> {
+    let url = Url::parse(base_url).map_err(|err| {
+        WebError::Authorization(format!(
+            "Invalid Microsoft OpenID provider URL: {err}"
+        ))
+    })?;
+    let tenant = url
+        .path_segments()
+        .and_then(|mut segments| segments.find(|segment| !segment.is_empty()))
+        .ok_or_else(|| {
+            WebError::Authorization(
+                "Microsoft OpenID provider URL must contain a tenant GUID".into(),
+            )
+        })?;
+    let parts = tenant.split('-').collect::<Vec<_>>();
+    let valid_guid = parts.len() == 5
+        && [8, 4, 4, 4, 12]
+            .iter()
+            .zip(parts.iter())
+            .all(|(len, part)| part.len() == *len && part.bytes().all(|b| b.is_ascii_hexdigit()));
+    if !valid_guid {
+        return Err(WebError::Authorization(
+            "Microsoft OpenID provider must use a tenant-specific GUID; common, organizations, consumers, and tenant-domain endpoints are not accepted".into(),
+        ));
+    }
+    Ok(tenant.to_owned())
+}
+
+fn decode_microsoft_id_token_claims(id_token: &str) -> Result<MicrosoftIdTokenClaims, WebError> {
+    let payload = id_token.split('.').nth(1).ok_or_else(|| {
+        WebError::Authorization("Microsoft ID token has an invalid JWT format".into())
+    })?;
+    let decoded = URL_SAFE_NO_PAD
+        .decode(payload)
+        .or_else(|_| URL_SAFE.decode(payload))
+        .map_err(|_| WebError::Authorization("Microsoft ID token payload is invalid".into()))?;
+    serde_json::from_slice(&decoded).map_err(|_| {
+        WebError::Authorization("Microsoft ID token claims could not be decoded".into())
+    })
+}
+
+/// Apply Microsoft-specific authorization policy after the normal OIDC verifier has validated the
+/// ID token signature, issuer, expiry and nonce. The raw JWT is decoded here only to read claims
+/// that aren't represented by `CoreIdTokenClaims`; it is never used as a substitute for OIDC
+/// verification.
+fn enforce_microsoft_token_policy(
+    provider: &OpenIdProvider<Id>,
+    id_token: &str,
+) -> Result<(), WebError> {
+    if provider.kind != OpenIdProviderKind::Microsoft {
+        return Ok(());
+    }
+
+    let expected_tenant = microsoft_tenant_from_base_url(&provider.base_url)?;
+    let claims = decode_microsoft_id_token_claims(id_token)?;
+    if !claims.tid.eq_ignore_ascii_case(&expected_tenant) {
+        warn!(
+            "Microsoft OpenID login rejected: token tenant {} does not match configured tenant {}",
+            claims.tid, expected_tenant
+        );
+        return Err(WebError::Authorization(
+            "Microsoft ID token was issued for an unexpected tenant".into(),
+        ));
+    }
+
+    // Microsoft documents `mfa` as proof of multifactor authentication and `ngcmfa` as its
+    // equivalent. Do not accept ambiguous indicators such as `wiaormfa` as proof of MFA.
+    let mfa_satisfied = claims
+        .amr
+        .iter()
+        .any(|method| method.eq_ignore_ascii_case("mfa") || method.eq_ignore_ascii_case("ngcmfa"));
+    if !mfa_satisfied {
+        warn!(
+            "Microsoft OpenID login rejected: token for tenant {} did not contain an MFA authentication method reference",
+            expected_tenant
+        );
+        return Err(WebError::Authorization(
+            "Microsoft Entra ID login did not satisfy the required MFA policy".into(),
+        ));
+    }
+
+    Ok(())
 }
 
 /// Create HTTP client and prevent following redirects
@@ -292,6 +387,8 @@ pub async fn user_from_claims(
                 .join(", ")
         );
     }
+
+    enforce_microsoft_token_policy(&provider, &id_token.to_string())?;
 
     // Only email and username is required for user lookup and login
     let email = token_claims.email().ok_or(WebError::BadRequest(
