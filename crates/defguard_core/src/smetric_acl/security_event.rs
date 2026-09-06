@@ -8,6 +8,8 @@ use serde_json::Value;
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
+const MAX_DELIVERY_ERROR_CHARS: usize = 4096;
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SecurityEventCategory {
@@ -198,7 +200,7 @@ pub async fn mark_delivered(pool: &PgPool, event_id: Uuid) -> Result<(), sqlx::E
 }
 
 /// Release a failed delivery with bounded exponential backoff. The attempt number comes from the
-/// claimed event and therefore includes the current delivery attempt.
+/// claimed event and therefore also fences this update against a newer worker that reclaimed it.
 pub async fn mark_failed(
     pool: &PgPool,
     event_id: Uuid,
@@ -207,14 +209,16 @@ pub async fn mark_failed(
 ) -> Result<(), sqlx::Error> {
     let exponent = u32::try_from(attempts.saturating_sub(1).clamp(0, 9)).unwrap_or(0);
     let retry_seconds = 5_i64.saturating_mul(1_i64 << exponent).min(3600);
+    let error = error.chars().take(MAX_DELIVERY_ERROR_CHARS).collect::<String>();
     sqlx::query(
         "UPDATE smetric_security_event_outbox \
          SET next_attempt_at = NOW() + ($2 * INTERVAL '1 second'), last_error = $3 \
-         WHERE event_id = $1 AND delivered_at IS NULL",
+         WHERE event_id = $1 AND delivered_at IS NULL AND attempts = $4",
     )
     .bind(event_id)
     .bind(retry_seconds)
     .bind(error)
+    .bind(attempts)
     .execute(pool)
     .await?;
     Ok(())
