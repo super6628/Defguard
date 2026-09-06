@@ -7,6 +7,9 @@ export type BrandConfig = {
   supportEmail?: string;
   documentationUrl?: string;
   websiteUrl?: string;
+  pricingUrl?: string;
+  downloadUrl?: string;
+  salesUrl?: string;
   bugReportUrl?: string;
   featureRequestUrl?: string;
   supportTicketUrl?: string;
@@ -35,6 +38,9 @@ export const brandConfig: BrandConfig = {
   supportEmail: readEnv('VITE_BRAND_SUPPORT_EMAIL'),
   documentationUrl: readEnv('VITE_BRAND_DOCUMENTATION_URL'),
   websiteUrl: readEnv('VITE_BRAND_WEBSITE_URL'),
+  pricingUrl: readEnv('VITE_BRAND_PRICING_URL'),
+  downloadUrl: readEnv('VITE_BRAND_DOWNLOAD_URL'),
+  salesUrl: readEnv('VITE_BRAND_SALES_URL'),
   bugReportUrl: readEnv('VITE_BRAND_BUG_REPORT_URL'),
   featureRequestUrl: readEnv('VITE_BRAND_FEATURE_REQUEST_URL'),
   supportTicketUrl: readEnv('VITE_BRAND_SUPPORT_TICKET_URL'),
