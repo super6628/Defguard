@@ -147,7 +147,7 @@ pub async fn dispatch_once(
     let results = stream::iter(events.into_iter().map(|event| async move {
         match transport.send(&event).await {
             Ok(()) => {
-                mark_delivered(pool, event.event_id)
+                mark_delivered(pool, event.event_id, event.attempts)
                     .await
                     .map_err(DispatchError::State)?;
                 Ok::<bool, DispatchError>(true)
