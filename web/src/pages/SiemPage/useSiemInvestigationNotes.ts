@@ -8,7 +8,11 @@ import {
 
 const loadNotes = (): SiemInvestigationNotes => {
   if (typeof window === 'undefined') return {};
-  return parseSiemNotes(window.localStorage.getItem(SIEM_NOTES_STORAGE_KEY));
+  try {
+    return parseSiemNotes(window.localStorage.getItem(SIEM_NOTES_STORAGE_KEY));
+  } catch {
+    return {};
+  }
 };
 
 export const useSiemInvestigationNotes = () => {
@@ -28,5 +32,5 @@ export const useSiemInvestigationNotes = () => {
 
   const getEventNote = (eventId: number) => notes[String(eventId)] ?? '';
 
-  return { notes, getEventNote, setEventNote };
+  return { getEventNote, setEventNote };
 };
