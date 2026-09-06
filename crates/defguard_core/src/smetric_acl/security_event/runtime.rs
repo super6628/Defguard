@@ -25,6 +25,8 @@ pub enum SiemRuntimeConfigError {
     InvalidEndpoint(String),
     #[error("unsupported DEFGUARD_SIEM_HTTP_URL scheme: {0}; expected http or https")]
     UnsupportedEndpointScheme(String),
+    #[error("DEFGUARD_SIEM_HTTP_URL must not contain embedded username or password credentials")]
+    EmbeddedEndpointCredentials,
     #[error("invalid integer in {name}: {value}")]
     InvalidInteger { name: &'static str, value: String },
     #[error("failed to build S-Metric SIEM HTTP client: {0}")]
@@ -42,6 +44,9 @@ impl SiemRuntimeConfig {
             return Err(SiemRuntimeConfigError::UnsupportedEndpointScheme(
                 endpoint.scheme().to_owned(),
             ));
+        }
+        if !endpoint.username().is_empty() || endpoint.password().is_some() {
+            return Err(SiemRuntimeConfigError::EmbeddedEndpointCredentials);
         }
 
         let timeout_secs = parse_env_u64("DEFGUARD_SIEM_HTTP_TIMEOUT_SECS", DEFAULT_TIMEOUT_SECS)?;
@@ -67,10 +72,14 @@ pub fn spawn_if_configured(
     shutdown: watch::Receiver<bool>,
 ) -> Result<Option<JoinHandle<()>>, SiemRuntimeConfigError> {
     let Some(config) = SiemRuntimeConfig::from_env()? else {
-        info!("S-Metric SIEM dispatcher disabled; DEFGUARD_SIEM_HTTP_URL is not configured");
+        tracing::info!("S-Metric SIEM dispatcher disabled; DEFGUARD_SIEM_HTTP_URL is not configured");
         return Ok(None);
     };
 
+    let endpoint_origin = match config.endpoint.port() {
+        Some(port) => format!("{}://{}:{port}", config.endpoint.scheme(), config.endpoint.host_str().unwrap_or("<unknown>")),
+        None => format!("{}://{}", config.endpoint.scheme(), config.endpoint.host_str().unwrap_or("<unknown>")),
+    };
     let transport = HttpSiemTransport::new(
         config.endpoint.to_string(),
         config.bearer_token,
@@ -78,8 +87,8 @@ pub fn spawn_if_configured(
     )
     .map_err(SiemRuntimeConfigError::HttpClient)?;
 
-    info!(
-        endpoint = %config.endpoint,
+    tracing::info!(
+        endpoint_origin = %endpoint_origin,
         batch_size = config.dispatcher.batch_size,
         lease_seconds = config.dispatcher.lease_seconds,
         poll_seconds = config.dispatcher.poll_interval.as_secs(),
