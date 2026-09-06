@@ -16,10 +16,7 @@ use crate::{
     PgPool,
     appstate::AppState,
     auth::{AdminRole, SessionInfo},
-    mail::{
-        Attachment,
-        templates::{self, SUPPORT_EMAIL_ADDRESS},
-    },
+    mail::{Attachment, templates},
     server_config,
     support::dump_config,
 };
@@ -94,7 +91,7 @@ async fn read_logs() -> String {
     }
 }
 
-/// Send the support data bundle to the defguard support address
+/// Send the support data bundle to the explicitly configured support address.
 #[utoipa::path(
     post,
     path = "/api/v1/mail/support",
@@ -104,7 +101,7 @@ async fn read_logs() -> String {
         (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
         (status = 403, description = "Requires admin privileges.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
         (status = 500, description = "Unable to send support data.", body = ApiErrorResponse, example = json!({"msg": "Internal server error"})),
-        (status = 503, description = "SMTP is not configured.", body = ApiErrorResponse, example = json!({"msg": "SMTP is not configured", "code": "smtp_not_configured"})),
+        (status = 503, description = "Support email or SMTP is not configured.", body = ApiErrorResponse),
     ),
     security(
         ("cookie" = []),
@@ -117,6 +114,20 @@ pub async fn send_support_data(
     State(appstate): State<AppState>,
 ) -> ApiResult {
     debug!("User {} sending support mail", session.user.username);
+
+    let support_email = match std::env::var("DEFGUARD_SUPPORT_EMAIL") {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => {
+            warn!("Support data sending is disabled: DEFGUARD_SUPPORT_EMAIL is not configured");
+            return Ok(ApiResponse::new(
+                json!({
+                    "error": "Support email is not configured",
+                    "code": "support_email_not_configured"
+                }),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ));
+        }
+    };
 
     let mut conn = appstate.pool.begin().await?;
     let proxies = Proxy::all(&mut *conn).await?;
@@ -144,17 +155,17 @@ pub async fn send_support_data(
     let now = Utc::now();
     let components_json =
         serde_json::to_vec(&components_info).unwrap_or(b"JSON formatting error".into());
-    let components = Attachment::new(format!("defguard-components-{now}.json"), components_json);
+    let components = Attachment::new(format!("s-metric-secure-components-{now}.json"), components_json);
     let config = dump_config(&mut conn)
         .await
         .unwrap_or(json!({"err": "Failed to dump configuration"}));
     let config = serde_json::to_vec_pretty(&config).unwrap_or(b"JSON formatting error".into());
-    let config = Attachment::new(format!("defguard-support-data-{now}.json"), config);
+    let config = Attachment::new(format!("s-metric-secure-support-data-{now}.json"), config);
     let logs = read_logs().await;
-    let logs = Attachment::new(format!("defguard-logs-{now}.txt"), logs.into());
+    let logs = Attachment::new(format!("s-metric-secure-logs-{now}.txt"), logs.into());
 
     let result = templates::support_data_mail(
-        SUPPORT_EMAIL_ADDRESS,
+        support_email.trim(),
         &mut conn,
         vec![components, config, logs],
     )
