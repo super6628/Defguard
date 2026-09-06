@@ -166,7 +166,7 @@ pub async fn claim_pending(
     sqlx::query_as::<_, QueuedSecurityEvent>(
         "WITH candidates AS (\
             SELECT id FROM smetric_security_event_outbox \
-            WHERE delivered_at IS NULL AND next_attempt_at <= NOW() \
+            WHERE delivered_at IS NULL AND dead_lettered_at IS NULL AND next_attempt_at <= NOW() \
             ORDER BY next_attempt_at, id \
             FOR UPDATE SKIP LOCKED \
             LIMIT $1\
@@ -177,7 +177,7 @@ pub async fn claim_pending(
          FROM candidates \
          WHERE event.id = candidates.id \
          RETURNING event.event_id,event.event_type,event.category,event.severity,\
-             event.actor_user_id,event.actor_username,event.actor_ip::text AS actor_ip,event.subject_type,\
+             event.actor_user_id,event.actor_username,host(event.actor_ip) AS actor_ip,event.subject_type,\
              event.subject_id,event.description,event.payload,event.attempts",
     )
     .bind(limit)
@@ -187,7 +187,7 @@ pub async fn claim_pending(
 }
 
 /// Mark an event as successfully delivered if this acknowledgement still belongs to the latest
-/// claim. Returns false when another worker has already reclaimed or completed the event.
+/// claim. Returns false when another worker has already reclaimed, completed, or dead-lettered it.
 pub async fn mark_delivered(
     pool: &PgPool,
     event_id: Uuid,
@@ -196,7 +196,7 @@ pub async fn mark_delivered(
     let result = sqlx::query(
         "UPDATE smetric_security_event_outbox \
          SET delivered_at = COALESCE(delivered_at, NOW()), last_error = NULL \
-         WHERE event_id = $1 AND delivered_at IS NULL AND attempts = $2",
+         WHERE event_id = $1 AND delivered_at IS NULL AND dead_lettered_at IS NULL AND attempts = $2",
     )
     .bind(event_id)
     .bind(attempts)
@@ -205,8 +205,8 @@ pub async fn mark_delivered(
     Ok(result.rows_affected() == 1)
 }
 
-/// Release a failed delivery with bounded exponential backoff. Returns false when another worker
-/// has already reclaimed or completed the event.
+/// Release a retryable failed delivery with bounded exponential backoff. Returns false when another
+/// worker has already reclaimed, completed, or dead-lettered the event.
 pub async fn mark_failed(
     pool: &PgPool,
     event_id: Uuid,
@@ -219,10 +219,32 @@ pub async fn mark_failed(
     let result = sqlx::query(
         "UPDATE smetric_security_event_outbox \
          SET next_attempt_at = NOW() + ($2 * INTERVAL '1 second'), last_error = $3 \
-         WHERE event_id = $1 AND delivered_at IS NULL AND attempts = $4",
+         WHERE event_id = $1 AND delivered_at IS NULL AND dead_lettered_at IS NULL AND attempts = $4",
     )
     .bind(event_id)
     .bind(retry_seconds)
+    .bind(error)
+    .bind(attempts)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() == 1)
+}
+
+/// Permanently stop retrying a terminal delivery failure while retaining the event and failure
+/// reason for operator inspection. The attempt fence prevents a stale worker from winning a race.
+pub async fn mark_dead_lettered(
+    pool: &PgPool,
+    event_id: Uuid,
+    attempts: i32,
+    error: &str,
+) -> Result<bool, sqlx::Error> {
+    let error = error.chars().take(MAX_DELIVERY_ERROR_CHARS).collect::<String>();
+    let result = sqlx::query(
+        "UPDATE smetric_security_event_outbox \
+         SET dead_lettered_at = COALESCE(dead_lettered_at, NOW()), last_error = $2 \
+         WHERE event_id = $1 AND delivered_at IS NULL AND dead_lettered_at IS NULL AND attempts = $3",
+    )
+    .bind(event_id)
     .bind(error)
     .bind(attempts)
     .execute(pool)
