@@ -9,6 +9,7 @@ import api from '../../shared/api/api';
 import type { SiemDetectionRuleId, SiemSeverity } from '../../shared/api/siem-types';
 import type { ActivityLogSortKey } from '../../shared/api/types';
 import { Page } from '../../shared/components/Page/Page';
+import { useAuth } from '../../shared/hooks/useAuth';
 import { displayDate } from '../../shared/utils/displayDate';
 import { SiemInvestigationNotes } from './SiemInvestigationNotes';
 import {
@@ -20,6 +21,7 @@ import {
   type SiemActivityLogEvent,
 } from './siem-classification';
 import { downloadSiemCsv } from './siem-export';
+import { readSiemScopedStorage, writeSiemScopedStorage } from './siem-storage';
 import { useSiemInvestigationNotes } from './useSiemInvestigationNotes';
 import './style.scss';
 
@@ -73,11 +75,11 @@ const getTimeRangeStart = (timeRange: TimeRange, anchorTimestamp: number) => {
 const getRuleLabel = (ruleId: DetectionRuleId) =>
   SIEM_RULE_DEFINITIONS.find((rule) => rule.id === ruleId)?.label ?? ruleId;
 
-const loadRuleState = (): PersistedRuleState => {
-  if (typeof window === 'undefined') return defaultRuleState;
+const loadRuleState = (username?: string): PersistedRuleState => {
+  const stored = readSiemScopedStorage(SIEM_RULES_STORAGE_KEY, username);
+  if (!stored) return defaultRuleState;
+
   try {
-    const stored = window.localStorage.getItem(SIEM_RULES_STORAGE_KEY);
-    if (!stored) return defaultRuleState;
     const parsed = JSON.parse(stored) as Partial<Record<DetectionRuleId, unknown>>;
     return Object.fromEntries(
       Object.entries(defaultRuleState).map(([id, defaultValue]) => [
@@ -92,11 +94,11 @@ const loadRuleState = (): PersistedRuleState => {
   }
 };
 
-const loadAlertState = (): PersistedAlertState => {
-  if (typeof window === 'undefined') return {};
+const loadAlertState = (username?: string): PersistedAlertState => {
+  const stored = readSiemScopedStorage(SIEM_ALERTS_STORAGE_KEY, username);
+  if (!stored) return {};
+
   try {
-    const stored = window.localStorage.getItem(SIEM_ALERTS_STORAGE_KEY);
-    if (!stored) return {};
     const parsed = JSON.parse(stored) as Record<string, unknown>;
     return Object.fromEntries(
       Object.entries(parsed).filter(
@@ -109,6 +111,7 @@ const loadAlertState = (): PersistedAlertState => {
 };
 
 export const SiemPage = () => {
+  const username = useAuth((state) => state.user?.username);
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -119,25 +122,23 @@ export const SiemPage = () => {
   const [alertView, setAlertView] = useState<AlertView>('all');
   const [detectionView, setDetectionView] = useState<DetectionView>('all');
   const [selectedEvent, setSelectedEvent] = useState<SiemActivityLogEvent | null>(null);
-  const [ruleState, setRuleState] = useState<PersistedRuleState>(loadRuleState);
-  const [alertState, setAlertState] = useState<PersistedAlertState>(loadAlertState);
-  const { getEventNote, setEventNote } = useSiemInvestigationNotes();
+  const [ruleState, setRuleState] = useState<PersistedRuleState>(() => loadRuleState(username));
+  const [alertState, setAlertState] = useState<PersistedAlertState>(() => loadAlertState(username));
+  const { getEventNote, setEventNote } = useSiemInvestigationNotes(username);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(SIEM_RULES_STORAGE_KEY, JSON.stringify(ruleState));
-    } catch {
-      // Local persistence is optional.
-    }
-  }, [ruleState]);
+    setRuleState(loadRuleState(username));
+    setAlertState(loadAlertState(username));
+    setSelectedEvent(null);
+  }, [username]);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(SIEM_ALERTS_STORAGE_KEY, JSON.stringify(alertState));
-    } catch {
-      // Local persistence is optional.
-    }
-  }, [alertState]);
+    writeSiemScopedStorage(SIEM_RULES_STORAGE_KEY, username, JSON.stringify(ruleState));
+  }, [ruleState, username]);
+
+  useEffect(() => {
+    writeSiemScopedStorage(SIEM_ALERTS_STORAGE_KEY, username, JSON.stringify(alertState));
+  }, [alertState, username]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -254,6 +255,12 @@ export const SiemPage = () => {
       }),
     [events, alertState, alertView, detectionView, ruleState],
   );
+
+  useEffect(() => {
+    if (selectedEvent && !visibleEvents.some((event) => event.id === selectedEvent.id)) {
+      setSelectedEvent(null);
+    }
+  }, [selectedEvent, visibleEvents]);
 
   const selectedSeverity = selectedEvent ? getSiemSeverity(selectedEvent) : null;
   const selectedAlertStatus = selectedEvent
