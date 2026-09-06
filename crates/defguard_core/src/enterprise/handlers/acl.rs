@@ -439,7 +439,7 @@ pub(crate) async fn get_acl_rule(
     request_body(content = EditAclRule, description = "The rule starts working after `PUT /api/v1/acl/rule/apply`.", example = json!({"name": "allow-web", "all_locations": false, "locations": [1], "enabled": true, "allow_all_users": false, "deny_all_users": false, "allow_all_groups": false, "deny_all_groups": false, "allow_all_network_devices": false, "deny_all_network_devices": false, "allowed_users": [1], "denied_users": [], "allowed_groups": [], "denied_groups": [], "allowed_network_devices": [], "denied_network_devices": [], "use_manual_destination_settings": true, "addresses": "10.0.0.0/24", "ports": "80, 443", "protocols": [6], "any_address": false, "any_port": false, "any_protocol": false, "aliases": [], "destinations": [], "expires": null})),
     responses(
         (status = 201, description = "ACL rule created.", body = ApiAclRule),
-        (status = 400, description = "Cannot use a modified alias in an ACL rule.", body = ApiErrorResponse, example = json!({"msg": "Cannot use modified alias in ACL rule [1]"})),
+        (status = 400, description = "Rule validation failed, for example because the name is blank, locations or sources are missing, allow/deny settings conflict, or destination settings are invalid.", body = ApiErrorResponse, example = json!({"msg": "Rule name cannot be empty"})),
         (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
         (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
         (status = 422, description = "Invalid addresses, ports or protocols.", body = ApiErrorResponse, example = json!({"msg": "Unprocessable entity"})),
@@ -486,7 +486,7 @@ pub(crate) async fn create_acl_rule(
     request_body = EditAclRule,
     responses(
         (status = 200, description = "ACL rule updated.", body = ApiAclRule),
-        (status = 400, description = "Cannot modify a deleted ACL rule.", body = ApiErrorResponse, example = json!({"msg": "Cannot modify deleted ACL rule 1"})),
+        (status = 400, description = "Rule validation failed or the rule cannot be modified in its current state.", body = ApiErrorResponse, example = json!({"msg": "Rule name cannot be empty"})),
         (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
         (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
         (status = 404, description = "ACL rule not found.", body = ApiErrorResponse, example = json!({"msg": "Rule 1 not found"})),
@@ -567,7 +567,7 @@ pub(crate) async fn delete_acl_rule(
     request_body = ApplyAclRulesData,
     responses(
         (status = 200, description = "Pending rule changes applied."),
-        (status = 400, description = "ACL rule is already applied.", body = ApiErrorResponse, example = json!({"msg": "Rule 1 already applied"})),
+        (status = 400, description = "Apply batch is empty or an ACL rule is already applied.", body = ApiErrorResponse, example = json!({"msg": "Must provide at least one ACL rule to apply"})),
         (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
         (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
         (status = 404, description = "ACL rule not found.", body = ApiErrorResponse, example = json!({"msg": "Rule 1 not found"})),
