@@ -1,6 +1,6 @@
 #siem-page {
   .page-content {
-    background: var(--surface-default-modal);
+    background: var(--bg-faint);
   }
 }
 
@@ -8,7 +8,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xl);
-  padding: var(--spacing-xl) var(--spacing-xl) var(--spacing-xl3);
+  padding: var(--spacing-xl) var(--spacing-xl) var(--spacing-3xl);
 }
 
 .siem-hero,
@@ -17,7 +17,7 @@
 .siem-kpi {
   border: var(--border-1) solid var(--border-default);
   border-radius: var(--radius-lg);
-  background: var(--surface-default);
+  background: var(--bg-default);
 }
 
 .siem-hero {
@@ -25,7 +25,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--spacing-xl);
-  padding: var(--spacing-xl2);
+  padding: var(--spacing-2xl);
 
   h2 {
     margin: var(--spacing-xs) 0 var(--spacing-sm);
@@ -35,14 +35,14 @@
   p:not(.siem-eyebrow) {
     max-width: 780px;
     margin: 0;
-    color: var(--text-body-tertiary);
+    color: var(--fg-muted);
     line-height: 1.55;
   }
 }
 
 .siem-eyebrow {
   margin: 0;
-  color: var(--text-body-tertiary);
+  color: var(--fg-muted);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -56,7 +56,7 @@
   gap: var(--spacing-xs);
   padding: var(--spacing-xs) var(--spacing-sm);
   border: var(--border-1) solid var(--border-default);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   font-size: 13px;
   font-weight: 600;
 }
@@ -65,7 +65,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--surface-positive-primary);
+  background: var(--bg-success);
 }
 
 .siem-kpis {
@@ -83,7 +83,7 @@
 
   span,
   small {
-    color: var(--text-body-tertiary);
+    color: var(--fg-muted);
   }
 
   span {
@@ -125,14 +125,14 @@
   padding: 0 var(--spacing-md);
   border: var(--border-1) solid var(--border-default);
   border-radius: var(--radius-md);
-  background: var(--surface-default);
-  color: var(--text-body-primary);
+  background: var(--bg-default);
+  color: var(--fg-default);
   cursor: pointer;
   font: inherit;
   font-weight: 600;
 
   &:hover {
-    background: var(--surface-hover);
+    background: var(--bg-muted);
   }
 }
 
@@ -149,7 +149,7 @@
     gap: var(--spacing-xs);
 
     > span {
-      color: var(--text-body-tertiary);
+      color: var(--fg-muted);
       font-size: 12px;
       font-weight: 600;
     }
@@ -163,15 +163,15 @@
     padding: 0 var(--spacing-sm);
     border: var(--border-1) solid var(--border-default);
     border-radius: var(--radius-md);
-    background: var(--surface-default);
-    color: var(--text-body-primary);
+    background: var(--bg-default);
+    color: var(--fg-default);
     font: inherit;
   }
 }
 
 .siem-state {
-  padding: var(--spacing-xl3) var(--spacing-xl);
-  color: var(--text-body-tertiary);
+  padding: var(--spacing-3xl) var(--spacing-xl);
+  color: var(--fg-muted);
   text-align: center;
 }
 
@@ -194,8 +194,8 @@
   }
 
   th {
-    background: var(--surface-default-modal);
-    color: var(--text-body-tertiary);
+    background: var(--bg-faint);
+    color: var(--fg-muted);
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.04em;
@@ -212,7 +212,7 @@
   min-width: 62px;
   justify-content: center;
   padding: 4px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
@@ -220,18 +220,18 @@
 
 .siem-severity-critical,
 .siem-severity-high {
-  background: var(--surface-alert-primary);
-  color: var(--text-alert-primary);
+  background: var(--bg-critical-muted);
+  color: var(--fg-critical);
 }
 
 .siem-severity-medium {
-  background: var(--surface-warning-primary);
-  color: var(--text-warning-primary);
+  background: var(--bg-warning-transparent);
+  color: var(--fg-attention);
 }
 
 .siem-severity-low {
-  background: var(--surface-info-primary);
-  color: var(--text-info-primary);
+  background: var(--bg-action-muted);
+  color: var(--fg-action);
 }
 
 .siem-nowrap {
@@ -241,7 +241,7 @@
 .siem-description {
   min-width: 280px;
   max-width: 440px;
-  color: var(--text-body-tertiary);
+  color: var(--fg-muted);
   line-height: 1.45;
 }
 
@@ -249,12 +249,12 @@
   display: flex;
   gap: var(--spacing-sm);
   padding: var(--spacing-md) var(--spacing-lg);
-  color: var(--text-body-tertiary);
+  color: var(--fg-muted);
   font-size: 13px;
 
   strong {
     flex-shrink: 0;
-    color: var(--text-body-primary);
+    color: var(--fg-default);
   }
 }
 
