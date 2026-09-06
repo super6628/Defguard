@@ -2,7 +2,7 @@ use std::net::IpAddr;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -89,10 +89,7 @@ impl NewSecurityEvent {
     }
 }
 
-/// Enqueue a security event durably. Delivery is intentionally decoupled from
-/// the management request so a temporary SIEM outage cannot fail policy changes.
-pub async fn enqueue(pool: &PgPool, event: &NewSecurityEvent) -> Result<Uuid, sqlx::Error> {
-    let event_id = Uuid::new_v4();
+fn insert_query(event_id: Uuid, event: &NewSecurityEvent) -> sqlx::query::Query<'_, Postgres, sqlx::postgres::PgArguments> {
     sqlx::query(
         "INSERT INTO smetric_security_event_outbox (\
             event_id,event_type,category,severity,actor_user_id,actor_username,actor_ip,\
@@ -110,7 +107,25 @@ pub async fn enqueue(pool: &PgPool, event: &NewSecurityEvent) -> Result<Uuid, sq
     .bind(&event.subject_id)
     .bind(&event.description)
     .bind(&event.payload)
-    .execute(pool)
-    .await?;
+}
+
+/// Enqueue a security event durably outside an existing transaction. Delivery is intentionally
+/// decoupled from the management request so a temporary SIEM outage cannot fail policy changes.
+pub async fn enqueue(pool: &PgPool, event: &NewSecurityEvent) -> Result<Uuid, sqlx::Error> {
+    let event_id = Uuid::new_v4();
+    insert_query(event_id, event).execute(pool).await?;
+    Ok(event_id)
+}
+
+/// Enqueue a security event in the caller's transaction so the event and the management change
+/// commit or roll back together.
+pub async fn enqueue_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    event: &NewSecurityEvent,
+) -> Result<Uuid, sqlx::Error> {
+    let event_id = Uuid::new_v4();
+    insert_query(event_id, event)
+        .execute(&mut **transaction)
+        .await?;
     Ok(event_id)
 }
