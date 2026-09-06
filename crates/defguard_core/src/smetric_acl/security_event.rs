@@ -109,7 +109,7 @@ pub struct QueuedSecurityEvent {
     pub subject_id: Option<String>,
     pub description: String,
     pub payload: Value,
-    pub attempts: i32,
+    pub attempts: i64,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
@@ -212,7 +212,7 @@ pub async fn claim_pending(
 pub async fn mark_delivered(
     pool: &PgPool,
     event_id: Uuid,
-    attempts: i32,
+    attempts: i64,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
         "UPDATE smetric_security_event_outbox \
@@ -229,7 +229,7 @@ pub async fn mark_delivered(
 pub async fn mark_failed(
     pool: &PgPool,
     event_id: Uuid,
-    attempts: i32,
+    attempts: i64,
     error: &str,
 ) -> Result<bool, sqlx::Error> {
     let exponent = u32::try_from(attempts.saturating_sub(1).clamp(0, 10)).unwrap_or(0);
@@ -254,7 +254,7 @@ pub async fn mark_failed(
 pub async fn mark_dead_lettered(
     pool: &PgPool,
     event_id: Uuid,
-    attempts: i32,
+    attempts: i64,
     error: &str,
 ) -> Result<bool, sqlx::Error> {
     let error = error.chars().take(MAX_DELIVERY_ERROR_CHARS).collect::<String>();
