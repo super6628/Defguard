@@ -326,7 +326,7 @@ pub(crate) async fn get_acl_alias(
     request_body(content = EditAclAlias, description = "`protocols` are IP protocol numbers, for example 6 for TCP and 17 for UDP.", example = json!({"name": "web-ports", "addresses": "10.0.0.0/24", "ports": "80, 443", "protocols": [6]})),
     responses(
         (status = 201, description = "ACL alias created.", body = ApiAclAlias),
-        (status = 400, description = "Alias addresses, ports or protocols are missing.", body = ApiErrorResponse, example = json!({"msg": "Must provide alias addresses, ports, or protocols"})),
+        (status = 400, description = "Alias name is blank or addresses, ports and protocols are all missing.", body = ApiErrorResponse, example = json!({"msg": "Alias name cannot be empty"})),
         (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
         (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
         (status = 422, description = "Invalid addresses, ports or protocols.", body = ApiErrorResponse, example = json!({"msg": "Unprocessable entity"})),
@@ -370,7 +370,7 @@ pub(crate) async fn create_acl_alias(
     request_body = EditAclAlias,
     responses(
         (status = 200, description = "ACL alias updated.", body = ApiAclAlias),
-        (status = 400, description = "Alias addresses, ports or protocols are missing.", body = ApiErrorResponse, example = json!({"msg": "Must provide alias addresses, ports, or protocols"})),
+        (status = 400, description = "Alias name is blank or addresses, ports and protocols are all missing.", body = ApiErrorResponse, example = json!({"msg": "Alias name cannot be empty"})),
         (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
         (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
         (status = 404, description = "ACL alias not found.", body = ApiErrorResponse, example = json!({"msg": "Alias 1 not found"})),
@@ -449,7 +449,7 @@ pub(crate) async fn delete_acl_alias(
     request_body = ApplyAclAliasesData,
     responses(
         (status = 200, description = "Pending alias changes applied."),
-        (status = 400, description = "ACL alias is already applied.", body = ApiErrorResponse, example = json!({"msg": "Alias 1 already applied"})),
+        (status = 400, description = "Apply batch is empty or an ACL alias is already applied.", body = ApiErrorResponse, example = json!({"msg": "Must provide at least one ACL alias to apply"})),
         (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
         (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
         (status = 404, description = "ACL alias not found.", body = ApiErrorResponse, example = json!({"msg": "Alias 1 not found"})),
