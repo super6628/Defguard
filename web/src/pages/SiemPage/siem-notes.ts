@@ -26,7 +26,8 @@ export const updateSiemNote = (
   const trimmed = note.trim();
 
   if (!trimmed) {
-    const { [key]: _removed, ...remaining } = notes;
+    const remaining = { ...notes };
+    delete remaining[key];
     return remaining;
   }
 
