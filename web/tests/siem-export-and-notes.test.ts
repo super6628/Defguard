@@ -29,6 +29,19 @@ describe('SIEM CSV export', () => {
     expect(csv).toContain('"HQ, Chicago"');
     expect(csv).toContain('"Failed login, repeated twice"');
   });
+
+  it('neutralizes spreadsheet formulas in user-controlled values', () => {
+    const csv = buildSiemCsv([
+      {
+        ...event,
+        username: '=HYPERLINK("https://example.invalid")',
+        description: '+SUM(1,1)',
+      },
+    ]);
+
+    expect(csv).toContain('"\'=HYPERLINK(""https://example.invalid"")"');
+    expect(csv).toContain('"\'+SUM(1,1)"');
+  });
 });
 
 describe('SIEM investigation notes', () => {
