@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use futures::{StreamExt, stream};
 use reqwest::Client;
 use serde::Serialize;
 use sqlx::PgPool;
@@ -7,11 +8,14 @@ use tokio::{sync::watch, time::MissedTickBehavior};
 
 use super::{QueuedSecurityEvent, claim_pending, mark_delivered, mark_failed};
 
+const MAX_DISPATCH_CONCURRENCY: i64 = 32;
+
 #[derive(Clone)]
 pub struct HttpSiemTransport {
     client: Client,
     endpoint: String,
     bearer_token: Option<String>,
+    timeout: Duration,
 }
 
 impl HttpSiemTransport {
@@ -25,6 +29,7 @@ impl HttpSiemTransport {
             client,
             endpoint: endpoint.into(),
             bearer_token,
+            timeout,
         })
     }
 
@@ -35,6 +40,11 @@ impl HttpSiemTransport {
         }
         request.send().await?.error_for_status()?;
         Ok(())
+    }
+
+    fn minimum_lease_seconds(&self) -> i32 {
+        let timeout_seconds = self.timeout.as_secs().min(3594);
+        i32::try_from(timeout_seconds + 5).unwrap_or(3599)
     }
 }
 
@@ -127,28 +137,42 @@ pub async fn dispatch_once(
     batch_size: i64,
     lease_seconds: i32,
 ) -> Result<DispatchStats, DispatchError> {
-    let events = claim_pending(pool, batch_size, lease_seconds)
+    let claim_size = batch_size.clamp(1, MAX_DISPATCH_CONCURRENCY);
+    let lease_seconds = lease_seconds.max(transport.minimum_lease_seconds());
+    let events = claim_pending(pool, claim_size, lease_seconds)
         .await
         .map_err(DispatchError::Claim)?;
-    let mut stats = DispatchStats {
-        claimed: events.len(),
-        ..DispatchStats::default()
-    };
+    let claimed = events.len();
 
-    for event in events {
+    let results = stream::iter(events.into_iter().map(|event| async move {
         match transport.send(&event).await {
             Ok(()) => {
                 mark_delivered(pool, event.event_id)
                     .await
                     .map_err(DispatchError::State)?;
-                stats.delivered += 1;
+                Ok::<bool, DispatchError>(true)
             }
             Err(error) => {
                 mark_failed(pool, event.event_id, event.attempts, &error.to_string())
                     .await
                     .map_err(DispatchError::State)?;
-                stats.failed += 1;
+                Ok(false)
             }
+        }
+    }))
+    .buffer_unordered(MAX_DISPATCH_CONCURRENCY as usize)
+    .collect::<Vec<_>>()
+    .await;
+
+    let mut stats = DispatchStats {
+        claimed,
+        ..DispatchStats::default()
+    };
+    for result in results {
+        if result? {
+            stats.delivered += 1;
+        } else {
+            stats.failed += 1;
         }
     }
 
