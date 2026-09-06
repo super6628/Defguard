@@ -3,6 +3,7 @@ use std::time::Duration;
 use reqwest::Client;
 use serde::Serialize;
 use sqlx::PgPool;
+use tokio::{sync::watch, time::MissedTickBehavior};
 
 use super::{QueuedSecurityEvent, claim_pending, mark_delivered, mark_failed};
 
@@ -95,6 +96,23 @@ pub struct DispatchStats {
     pub failed: usize,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct DispatcherConfig {
+    pub batch_size: i64,
+    pub lease_seconds: i32,
+    pub poll_interval: Duration,
+}
+
+impl Default for DispatcherConfig {
+    fn default() -> Self {
+        Self {
+            batch_size: 100,
+            lease_seconds: 60,
+            poll_interval: Duration::from_secs(5),
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum DispatchError {
     #[error("failed to claim S-Metric security events: {0}")]
@@ -135,4 +153,49 @@ pub async fn dispatch_once(
     }
 
     Ok(stats)
+}
+
+/// Run the SIEM dispatcher until shutdown is requested. Individual dispatch failures are logged
+/// and retried on the next tick so a database or remote SIEM outage does not terminate the worker.
+pub async fn run_dispatcher(
+    pool: PgPool,
+    transport: HttpSiemTransport,
+    config: DispatcherConfig,
+    mut shutdown: watch::Receiver<bool>,
+) {
+    let poll_interval = config.poll_interval.max(Duration::from_millis(250));
+    let mut ticker = tokio::time::interval(poll_interval);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+    loop {
+        tokio::select! {
+            changed = shutdown.changed() => {
+                if changed.is_err() || *shutdown.borrow() {
+                    debug!("S-Metric SIEM dispatcher stopping");
+                    break;
+                }
+            }
+            _ = ticker.tick() => {
+                match dispatch_once(
+                    &pool,
+                    &transport,
+                    config.batch_size,
+                    config.lease_seconds,
+                ).await {
+                    Ok(stats) if stats.claimed > 0 => {
+                        info!(
+                            claimed = stats.claimed,
+                            delivered = stats.delivered,
+                            failed = stats.failed,
+                            "S-Metric SIEM dispatch cycle completed"
+                        );
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        error!(%error, "S-Metric SIEM dispatch cycle failed");
+                    }
+                }
+            }
+        }
+    }
 }
