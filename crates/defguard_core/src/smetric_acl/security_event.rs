@@ -133,16 +133,12 @@ fn insert_query(
     .bind(&event.payload)
 }
 
-/// Enqueue a security event durably outside an existing transaction. Delivery is intentionally
-/// decoupled from the management request so a temporary SIEM outage cannot fail policy changes.
 pub async fn enqueue(pool: &PgPool, event: &NewSecurityEvent) -> Result<Uuid, sqlx::Error> {
     let event_id = Uuid::new_v4();
     insert_query(event_id, event).execute(pool).await?;
     Ok(event_id)
 }
 
-/// Enqueue a security event in the caller's transaction so the event and the management change
-/// commit or roll back together.
 pub async fn enqueue_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     event: &NewSecurityEvent,
@@ -154,8 +150,6 @@ pub async fn enqueue_in_transaction(
     Ok(event_id)
 }
 
-/// Atomically lease pending events for one dispatcher. Leased rows are moved into the future so
-/// concurrent workers skip them; if the worker dies, they become claimable again after the lease.
 pub async fn claim_pending(
     pool: &PgPool,
     limit: i64,
@@ -186,8 +180,6 @@ pub async fn claim_pending(
     .await
 }
 
-/// Mark an event as successfully delivered if this acknowledgement still belongs to the latest
-/// claim. Returns false when another worker has already reclaimed, completed, or dead-lettered it.
 pub async fn mark_delivered(
     pool: &PgPool,
     event_id: Uuid,
@@ -205,8 +197,6 @@ pub async fn mark_delivered(
     Ok(result.rows_affected() == 1)
 }
 
-/// Release a retryable failed delivery with bounded exponential backoff. Returns false when another
-/// worker has already reclaimed, completed, or dead-lettered the event.
 pub async fn mark_failed(
     pool: &PgPool,
     event_id: Uuid,
@@ -230,8 +220,6 @@ pub async fn mark_failed(
     Ok(result.rows_affected() == 1)
 }
 
-/// Permanently stop retrying a terminal delivery failure while retaining the event and failure
-/// reason for operator inspection. The attempt fence prevents a stale worker from winning a race.
 pub async fn mark_dead_lettered(
     pool: &PgPool,
     event_id: Uuid,
@@ -250,4 +238,30 @@ pub async fn mark_dead_lettered(
     .execute(pool)
     .await?;
     Ok(result.rows_affected() == 1)
+}
+
+/// Delete a bounded batch of successfully delivered events older than the retention window.
+/// Dead-lettered and pending rows are never touched.
+pub async fn purge_delivered(
+    pool: &PgPool,
+    retention_seconds: i64,
+    batch_size: i64,
+) -> Result<u64, sqlx::Error> {
+    let retention_seconds = retention_seconds.clamp(3600, 31_536_000);
+    let batch_size = batch_size.clamp(1, 10_000);
+    let result = sqlx::query(
+        "DELETE FROM smetric_security_event_outbox \
+         WHERE id IN (\
+             SELECT id FROM smetric_security_event_outbox \
+             WHERE delivered_at IS NOT NULL AND dead_lettered_at IS NULL \
+               AND delivered_at < NOW() - ($1 * INTERVAL '1 second') \
+             ORDER BY delivered_at, id \
+             LIMIT $2\
+         )",
+    )
+    .bind(retention_seconds)
+    .bind(batch_size)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
 }
