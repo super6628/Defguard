@@ -99,7 +99,7 @@ impl fmt::Display for SortOrder {
 }
 
 /// Server-owned SIEM severity assigned to an activity log event.
-#[derive(Debug, Clone, Copy, Default, Serialize, ToSchema)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum SiemSeverity {
     Critical,
@@ -110,7 +110,7 @@ pub enum SiemSeverity {
 }
 
 /// Server-owned SIEM detection families matching an activity log event.
-#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum SiemDetectionRuleId {
     AuthenticationFailures,
@@ -389,4 +389,52 @@ fn apply_sorting(query_builder: &mut QueryBuilder<Postgres>, sorting: &SortParam
         .push(sorting.sort_order.to_string())
         .push(", id ")
         .push(sorting.sort_order.to_string());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SiemDetectionRuleId, SiemSeverity, classify_siem_event};
+
+    #[test]
+    fn classifies_critical_credential_event() {
+        let (severity, detections) = classify_siem_event("mfa_disabled");
+
+        assert_eq!(severity, SiemSeverity::Critical);
+        assert_eq!(
+            detections,
+            vec![SiemDetectionRuleId::CredentialSecurityChanges]
+        );
+    }
+
+    #[test]
+    fn classifies_high_authentication_failure() {
+        let (severity, detections) = classify_siem_event("user_login_failed");
+
+        assert_eq!(severity, SiemSeverity::High);
+        assert_eq!(detections, vec![SiemDetectionRuleId::AuthenticationFailures]);
+    }
+
+    #[test]
+    fn classifies_posture_failure() {
+        let (severity, detections) = classify_siem_event("device_posture_check_failed");
+
+        assert_eq!(severity, SiemSeverity::High);
+        assert_eq!(detections, vec![SiemDetectionRuleId::PostureFailures]);
+    }
+
+    #[test]
+    fn classifies_medium_infrastructure_event() {
+        let (severity, detections) = classify_siem_event("settings_updated");
+
+        assert_eq!(severity, SiemSeverity::Medium);
+        assert_eq!(detections, vec![SiemDetectionRuleId::InfrastructureChanges]);
+    }
+
+    #[test]
+    fn keeps_unmapped_event_low_without_detection() {
+        let (severity, detections) = classify_siem_event("user_login");
+
+        assert_eq!(severity, SiemSeverity::Low);
+        assert!(detections.is_empty());
+    }
 }
