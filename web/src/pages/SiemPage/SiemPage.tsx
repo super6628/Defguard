@@ -23,6 +23,7 @@ import './style.scss';
 type Severity = SiemSeverity;
 type DetectionRuleId = SiemDetectionRuleId;
 type AlertStatus = 'open' | 'acknowledged';
+type TimeRange = 'all' | '1h' | '24h' | '7d' | '30d';
 type PersistedRuleState = Record<DetectionRuleId, boolean>;
 type PersistedAlertState = Record<string, AlertStatus>;
 
@@ -49,8 +50,20 @@ const defaultRuleState: PersistedRuleState = {
   'infrastructure-changes': true,
 };
 
+const timeRangeMs: Record<Exclude<TimeRange, 'all'>, number> = {
+  '1h': 60 * 60 * 1000,
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+};
+
 const formatEvent = (event: SiemActivityLogEvent['event']) =>
   activityLogEventDisplay[event] ?? event.replaceAll('_', ' ');
+
+const getTimeRangeStart = (timeRange: TimeRange) => {
+  if (timeRange === 'all') return undefined;
+  return new Date(Date.now() - timeRangeMs[timeRange]).toISOString();
+};
 
 const loadRuleState = (): PersistedRuleState => {
   if (typeof window === 'undefined') return defaultRuleState;
@@ -93,6 +106,7 @@ export const SiemPage = () => {
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [severity, setSeverity] = useState<Severity | 'all'>('all');
   const [source, setSource] = useState<ActivityLogModuleValue | 'all'>('all');
+  const [timeRange, setTimeRange] = useState<TimeRange>('all');
   const [selectedEvent, setSelectedEvent] = useState<SiemActivityLogEvent | null>(null);
   const [ruleState, setRuleState] = useState<PersistedRuleState>(loadRuleState);
   const [alertState, setAlertState] = useState<PersistedAlertState>(loadAlertState);
@@ -124,11 +138,11 @@ export const SiemPage = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [severity, source]);
+  }, [severity, source, timeRange]);
 
   useEffect(() => {
     setSelectedEvent(null);
-  }, [page, debouncedQuery, severity, source]);
+  }, [page, debouncedQuery, severity, source, timeRange]);
 
   const severityEventTypes = useMemo(
     () => (severity === 'all' ? undefined : getEventTypesForSeverity(severity)),
@@ -136,12 +150,13 @@ export const SiemPage = () => {
   );
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['siem', 'activity-log', page, debouncedQuery, severity, source],
+    queryKey: ['siem', 'activity-log', page, debouncedQuery, severity, source, timeRange],
     queryFn: () =>
       api.getActivityLog({
         page,
         per_page: PAGE_SIZE,
         search: debouncedQuery || undefined,
+        from: getTimeRangeStart(timeRange),
         event: severityEventTypes,
         module: source === 'all' ? undefined : [source],
         sort_by: 'timestamp' as ActivityLogSortKey,
@@ -155,6 +170,8 @@ export const SiemPage = () => {
   const totalPages = Math.max(pagination?.total_pages ?? 1, 1);
   const totalItems = pagination?.total_items ?? events.length;
   const currentPage = pagination?.current_page ?? page;
+  const hasActiveFilters =
+    query.length > 0 || severity !== 'all' || source !== 'all' || timeRange !== 'all';
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -206,6 +223,16 @@ export const SiemPage = () => {
     }));
   };
 
+  const resetFilters = () => {
+    setQuery('');
+    setDebouncedQuery('');
+    setSeverity('all');
+    setSource('all');
+    setTimeRange('all');
+    setPage(1);
+    setSelectedEvent(null);
+  };
+
   const changePage = (nextPage: number) => {
     if (nextPage < 1 || nextPage > totalPages || nextPage === page) return;
     setPage(nextPage);
@@ -231,11 +258,7 @@ export const SiemPage = () => {
 
         <section className="siem-kpis" aria-label="SIEM summary">
           <article className="siem-kpi">
-            <span>
-              {debouncedQuery || severity !== 'all' || source !== 'all'
-                ? 'Matching events'
-                : 'Total events'}
-            </span>
+            <span>{hasActiveFilters ? 'Matching events' : 'Total events'}</span>
             <strong>{totalItems}</strong>
             <small>{events.length} loaded on this page</small>
           </article>
@@ -298,9 +321,16 @@ export const SiemPage = () => {
                 <p className="siem-eyebrow">Detection queue</p>
                 <h3>Security events</h3>
               </div>
-              <button className="siem-refresh" type="button" onClick={() => void refetch()}>
-                Refresh
-              </button>
+              <div className="siem-panel-actions">
+                {hasActiveFilters && (
+                  <button className="siem-refresh" type="button" onClick={resetFilters}>
+                    Reset filters
+                  </button>
+                )}
+                <button className="siem-refresh" type="button" onClick={() => void refetch()}>
+                  Refresh
+                </button>
+              </div>
             </div>
 
             <div className="siem-filters">
@@ -341,6 +371,19 @@ export const SiemPage = () => {
                       {item}
                     </option>
                   ))}
+                </select>
+              </label>
+              <label>
+                <span>Time window</span>
+                <select
+                  value={timeRange}
+                  onChange={(event) => setTimeRange(event.target.value as TimeRange)}
+                >
+                  <option value="all">All history</option>
+                  <option value="1h">Last hour</option>
+                  <option value="24h">Last 24 hours</option>
+                  <option value="7d">Last 7 days</option>
+                  <option value="30d">Last 30 days</option>
                 </select>
               </label>
             </div>
@@ -520,9 +563,9 @@ export const SiemPage = () => {
         <section className="siem-footnote">
           <strong>Core owns event classification; SIEM controls remain non-destructive.</strong>
           <span>
-            Severity and detection metadata come from the Activity Log API when supported, with a
-            compatibility fallback for older Core versions. Text search, severity, and source
-            filtering query the full Activity Log history through existing server-side filters.
+            Search, severity, source, and time-window filtering all use existing Activity Log API
+            filters. Rule enablement and alert acknowledgement remain browser-local until the
+            server-side SIEM persistence model is reviewed.
           </span>
         </section>
       </div>
