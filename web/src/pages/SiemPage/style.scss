@@ -120,6 +120,13 @@
   }
 }
 
+.siem-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+}
+
 .siem-panel-meta {
   color: var(--fg-muted);
   font-size: 12px;
@@ -216,7 +223,7 @@
 
 .siem-filters {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(160px, 220px) minmax(160px, 220px);
+  grid-template-columns: minmax(260px, 1fr) repeat(3, minmax(140px, 190px));
   gap: var(--spacing-md);
   padding: var(--spacing-lg) var(--spacing-xl);
   border-bottom: var(--border-1) solid var(--border-default);
@@ -483,8 +490,21 @@
 
   .siem-hero,
   .siem-footnote,
-  .siem-pagination {
+  .siem-pagination,
+  .siem-panel-header {
     flex-direction: column;
+  }
+
+  .siem-panel-header {
+    align-items: stretch;
+  }
+
+  .siem-panel-actions {
+    justify-content: stretch;
+
+    .siem-refresh {
+      flex: 1;
+    }
   }
 
   .siem-pagination {
