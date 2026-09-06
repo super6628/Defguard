@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { ActivityLogEventType } from '../src/shared/api/activity-log-types';
+import {
+  ActivityLogEventType,
+  ActivityLogModule,
+} from '../src/shared/api/activity-log-types';
 import type { SiemActivityLogEvent } from '../src/pages/SiemPage/siem-classification';
 import { buildSiemCsv } from '../src/pages/SiemPage/siem-export';
 import { parseSiemNotes, updateSiemNote } from '../src/pages/SiemPage/siem-notes';
@@ -12,7 +15,7 @@ const event: SiemActivityLogEvent = {
   ip: '192.0.2.42',
   location: 'HQ, Chicago',
   event: ActivityLogEventType.UserLoginFailed,
-  module: 'defguard',
+  module: ActivityLogModule.Defguard,
   device: 'browser',
   description: 'Failed login, repeated twice',
 };
