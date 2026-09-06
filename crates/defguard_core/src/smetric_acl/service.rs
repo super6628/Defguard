@@ -1,11 +1,15 @@
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sqlx::{PgPool, Postgres, Transaction};
 
 use super::{
     Action, DefaultAction, Destination, Policy, PortRange, Protocol, Rule, Subject,
     ValidationError, compile, validate,
+};
+use super::security_event::{
+    NewSecurityEvent, SecurityEventCategory, enqueue_in_transaction,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -110,6 +114,7 @@ pub async fn add_rule(
     ensure_policy(&mut tx, policy_id).await?;
     let row = write_rule_insert(&mut tx, policy_id, input).await?;
     bump_revision(&mut tx, policy_id).await?;
+    enqueue_rule_event(&mut tx, "created", policy_id, row.0).await?;
     tx.commit().await?;
     rule_from_row(row)
 }
@@ -148,6 +153,7 @@ pub async fn update_rule(
     .await?
     .ok_or(ServiceError::RuleNotFound { policy_id, rule_id })?;
     bump_revision(&mut tx, policy_id).await?;
+    enqueue_rule_event(&mut tx, "updated", policy_id, rule_id).await?;
     tx.commit().await?;
     rule_from_row(row)
 }
@@ -170,7 +176,30 @@ pub async fn delete_rule(
         return Err(ServiceError::RuleNotFound { policy_id, rule_id });
     }
     bump_revision(&mut tx, policy_id).await?;
+    enqueue_rule_event(&mut tx, "deleted", policy_id, rule_id).await?;
     tx.commit().await?;
+    Ok(())
+}
+
+async fn enqueue_rule_event(
+    tx: &mut Transaction<'_, Postgres>,
+    action: &'static str,
+    policy_id: i64,
+    rule_id: i64,
+) -> Result<(), ServiceError> {
+    let event = NewSecurityEvent::management(
+        format!("smetric.acl.rule.{action}"),
+        SecurityEventCategory::Firewall,
+        "acl_rule",
+        Some(rule_id.to_string()),
+        format!("S-Metric ACL rule {rule_id} {action}"),
+        json!({
+            "policy_id": policy_id,
+            "rule_id": rule_id,
+            "action": action,
+        }),
+    );
+    enqueue_in_transaction(tx, &event).await?;
     Ok(())
 }
 
