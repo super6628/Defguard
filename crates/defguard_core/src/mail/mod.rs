@@ -374,31 +374,31 @@ impl MailMessage {
             }
         }
         match self {
-            Self::Test => "Defguard: Test message".to_owned(),
+            Self::Test => "S-Metric Secure: Test message".to_owned(),
             Self::Welcome => WELCOME_EMAIL_SUBJECT.to_owned(),
-            Self::SupportData => "Defguard: Support data".to_owned(),
-            Self::DesktopStart => "Defguard: Desktop client configuration".to_owned(),
-            Self::NewAccount => "Defguard: User enrollment".to_owned(),
-            Self::NewDevice => "Defguard: new device added to your account".to_owned(),
-            Self::NewDeviceLogin => "Defguard: New device logged in to your account".to_owned(),
+            Self::SupportData => "S-Metric Secure: Support data".to_owned(),
+            Self::DesktopStart => "S-Metric Secure: Desktop client configuration".to_owned(),
+            Self::NewAccount => "S-Metric Secure: User enrollment".to_owned(),
+            Self::NewDevice => "S-Metric Secure: new device added to your account".to_owned(),
+            Self::NewDeviceLogin => "S-Metric Secure: New device logged in to your account".to_owned(),
             Self::NewDeviceOIDCLogin => "New login to OIDC application".to_owned(),
-            Self::GatewayDisconnect => "Defguard: Gateway disconnected".to_owned(),
-            Self::GatewayReconnect => "Defguard: Gateway reconnected".to_owned(),
+            Self::GatewayDisconnect => "S-Metric Secure: Gateway disconnected".to_owned(),
+            Self::GatewayReconnect => "S-Metric Secure: Gateway reconnected".to_owned(),
             Self::MFAActivation => "Multi-Factor Authentication activation".to_owned(),
             Self::MFAConfigured { method } => {
                 format!("Multi-Factor Authentication {method} has been activated")
             }
-            Self::MFACode => "Defguard: Multi-Factor Authentication code for login".to_owned(),
-            Self::PasswordReset => "Defguard: Password reset".to_owned(),
-            Self::PasswordResetDone => "Defguard: Password reset success".to_owned(),
-            Self::PasswordResetDisabled => "Defguard: Password reset disabled".to_owned(),
+            Self::MFACode => "S-Metric Secure: Multi-Factor Authentication code for login".to_owned(),
+            Self::PasswordReset => "S-Metric Secure: Password reset".to_owned(),
+            Self::PasswordResetDone => "S-Metric Secure: Password reset success".to_owned(),
+            Self::PasswordResetDisabled => "S-Metric Secure: Password reset disabled".to_owned(),
             Self::UserImportBlocked => "User import blocked".to_owned(),
-            Self::EnrollmentNotification => "Defguard: User enrollment completed".to_owned(),
+            Self::EnrollmentNotification => "S-Metric Secure: User enrollment completed".to_owned(),
             Self::LetsencryptCertRefreshFailed => {
-                "Defguard: automatic Let's Encrypt certificate refresh failed".to_owned()
+                "S-Metric Secure: automatic Let's Encrypt certificate refresh failed".to_owned()
             }
-            Self::CertificateExpiration => "Defguard: Certificate expiration".to_owned(),
-            Self::CertificateExpired => "Defguard: Certificate has expired".to_owned(),
+            Self::CertificateExpiration => "S-Metric Secure: Certificate expiration".to_owned(),
+            Self::CertificateExpired => "S-Metric Secure: Certificate has expired".to_owned(),
         }
     }
 
