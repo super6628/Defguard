@@ -1,8 +1,32 @@
+import { useEffect, useState } from 'react';
 import { branding } from '../../branding/branding';
 import { ThemeVariable } from '../../defguard-ui/types';
 
+const useActiveTheme = () => {
+  const getTheme = () =>
+    typeof document === 'undefined' ? 'light' : document.documentElement.dataset.theme || 'light';
+  const [theme, setTheme] = useState(getTheme);
+
+  useEffect(() => {
+    const refresh = () => setTheme(getTheme());
+    const observer = new MutationObserver(refresh);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+    window.addEventListener('branding-updated', refresh);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('branding-updated', refresh);
+    };
+  }, []);
+
+  return theme;
+};
+
 export const LoginPageLogo = () => {
-  const customLogo = branding.logoDarkUrl || branding.logoUrl;
+  const theme = useActiveTheme();
+  const customLogo = theme === 'dark' && branding.logoDarkUrl ? branding.logoDarkUrl : branding.logoUrl;
   if (customLogo) {
     return (
       <img
