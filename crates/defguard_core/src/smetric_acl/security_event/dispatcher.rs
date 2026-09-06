@@ -11,7 +11,7 @@ use super::{
 };
 
 const MAX_DISPATCH_CONCURRENCY: i64 = 32;
-const MAX_DELIVERY_ATTEMPTS: i32 = 12;
+const MAX_CONFIGURATION_FAILURE_ATTEMPTS: i32 = 12;
 
 #[derive(Clone)]
 pub struct HttpSiemTransport {
@@ -78,13 +78,15 @@ impl TransportError {
         }
     }
 
-    /// Failures that cannot plausibly recover by waiting. Authentication/authorization failures
-    /// are deliberately retryable so rotating a bad token can recover queued events.
     fn is_terminal(self) -> bool {
         matches!(
             self,
             Self::HttpStatus(400 | 404 | 405 | 410 | 413 | 414 | 415 | 422)
         )
+    }
+
+    fn is_bounded_configuration_failure(self) -> bool {
+        matches!(self, Self::HttpStatus(401 | 403) | Self::Request)
     }
 }
 
@@ -206,7 +208,11 @@ pub async fn dispatch_once(
                     DispatchOutcome::Stale
                 })
             }
-            Err(error) if error.is_terminal() || event.attempts >= MAX_DELIVERY_ATTEMPTS => {
+            Err(error)
+                if error.is_terminal()
+                    || (error.is_bounded_configuration_failure()
+                        && event.attempts >= MAX_CONFIGURATION_FAILURE_ATTEMPTS) =>
+            {
                 let updated = mark_dead_lettered(
                     pool,
                     event.event_id,
@@ -253,8 +259,6 @@ pub async fn dispatch_once(
     Ok(stats)
 }
 
-/// Run the SIEM dispatcher until shutdown is requested. Individual dispatch failures are logged
-/// and retried on the next tick so a database or remote SIEM outage does not terminate the worker.
 pub async fn run_dispatcher(
     pool: PgPool,
     transport: HttpSiemTransport,
