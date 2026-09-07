@@ -6,7 +6,7 @@ use defguard_common::{
             Device, DeviceType, User, WireguardNetwork,
             group::{Group, Permission},
             settings::initialize_current_settings,
-            wireguard::{LocationMfaMode, ServiceLocationMode},
+            wireguard::ServiceLocationMode,
         },
     },
 };
@@ -39,6 +39,7 @@ use crate::common::{init_config, initialize_users};
 mod aliases;
 mod destinations;
 mod rules;
+mod validation;
 
 async fn make_client_v2(pool: PgPool, config: DefGuardConfig) -> TestClient {
     let listener = TcpListener::bind("127.0.0.1:0")
@@ -55,7 +56,7 @@ async fn make_client_v2(pool: PgPool, config: DefGuardConfig) -> TestClient {
 fn make_rule() -> EditAclRule {
     EditAclRule {
         name: "rule".to_owned(),
-        all_locations: false,
+        all_locations: true,
         locations: Vec::new(),
         expires: None,
         allow_all_users: false,

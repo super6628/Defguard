@@ -7,7 +7,7 @@ use defguard_common::{
             device::{Device, DeviceInfo, DeviceNetworkInfo, DeviceType, WireguardNetworkDevice},
             user::User,
             vpn_client_session::VpnClientSession,
-            wireguard::{LocationMfaMode, WireguardNetwork},
+            wireguard::WireguardNetwork,
         },
     },
     gateway_event::GatewayCommand,
@@ -103,7 +103,7 @@ pub(crate) async fn create_authorized_mfa_device_for_network(
         .expect("failed to load MFA test network")
         .expect("expected MFA test network");
 
-    let mut session = VpnClientSession::new(network_id, device.user_id, device.id, None, None);
+    let mut session = VpnClientSession::new(network_id, device.user_id, device.id, None, false);
     session.preshared_key = Some(preshared_key.to_owned());
     session
         .save(&context.pool)
@@ -211,12 +211,12 @@ pub(crate) async fn enable_internal_mfa_for_network(
     pool: &sqlx::PgPool,
     network: &mut WireguardNetwork<Id>,
 ) {
-    network.location_mfa_mode = LocationMfaMode::Internal;
+    network.mfa_enabled = true;
     network
         .save(pool)
         .await
         .expect("failed to enable MFA for test network");
-    assert!(network.mfa_enabled());
+    assert!(network.mfa_enabled);
 }
 
 pub(crate) async fn enable_linux_posture_for_network(

@@ -38,7 +38,9 @@ where
             // Public HTTP responses use S-Metric branding. Internal gRPC metadata keeps
             // the legacy compatibility header names used by existing components.
             if let Some(version) = parsed_info {
-                response.headers_mut().insert(PUBLIC_VERSION_HEADER, version);
+                response
+                    .headers_mut()
+                    .insert(PUBLIC_VERSION_HEADER, version);
             }
 
             Ok(response)
