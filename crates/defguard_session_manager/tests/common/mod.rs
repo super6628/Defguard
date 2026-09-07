@@ -11,9 +11,9 @@ use defguard_common::{
             Device, DeviceType, User, WireguardNetwork,
             device::WireguardNetworkDevice,
             gateway::Gateway,
-            vpn_client_session::{VpnClientMfaMethod, VpnClientSession, VpnClientSessionState},
+            vpn_client_session::{VpnClientSession, VpnClientSessionState},
             vpn_session_stats::VpnSessionStats,
-            wireguard::{LocationMfaMode, ServiceLocationMode},
+            wireguard::ServiceLocationMode,
         },
     },
     gateway_event::GatewayCommand,
@@ -117,12 +117,12 @@ impl SessionManagerHarness {
 }
 
 pub(crate) async fn create_location(pool: &PgPool) -> WireguardNetwork<Id> {
-    create_location_with_mfa_mode(pool, LocationMfaMode::Disabled).await
+    create_location_with_mfa_mode(pool, false).await
 }
 
 pub(crate) async fn create_location_with_mfa_mode(
     pool: &PgPool,
-    location_mfa_mode: LocationMfaMode,
+    mfa_enabled: bool,
 ) -> WireguardNetwork<Id> {
     WireguardNetwork::new(
         "TestNet".to_owned(),
@@ -134,7 +134,7 @@ pub(crate) async fn create_location_with_mfa_mode(
         false,
         false,
         false,
-        location_mfa_mode,
+        mfa_enabled,
         ServiceLocationMode::Disabled,
     )
     .set_address([IpNetwork::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 24).unwrap()])
@@ -269,7 +269,7 @@ pub(crate) async fn authorize_device_in_location(
         user_id,
         device_id,
         Some(truncate_timestamp(chrono::Utc::now().naive_utc())),
-        Some(VpnClientMfaMethod::Totp),
+        true,
     );
     session.preshared_key = Some(preshared_key.to_owned());
     session.state = VpnClientSessionState::Connected;
@@ -323,11 +323,16 @@ pub(crate) async fn create_session(
     user_id: Id,
     device_id: Id,
     connected_at: Option<NaiveDateTime>,
-    mfa_method: Option<VpnClientMfaMethod>,
+    is_mfa_session: bool,
     preshared_key: Option<&str>,
 ) -> VpnClientSession<Id> {
-    let mut session =
-        VpnClientSession::new(location_id, user_id, device_id, connected_at, mfa_method);
+    let mut session = VpnClientSession::new(
+        location_id,
+        user_id,
+        device_id,
+        connected_at,
+        is_mfa_session,
+    );
     session.preshared_key = preshared_key.map(str::to_owned);
     session
         .save(pool)

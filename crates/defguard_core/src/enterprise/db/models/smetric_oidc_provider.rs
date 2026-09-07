@@ -113,9 +113,11 @@ impl SMetricOidcProvider {
     ) -> sqlx::Result<Self> {
         let mut tx = pool.begin().await?;
         if is_default {
-            sqlx::query("UPDATE smetric_oidc_provider SET is_default = FALSE WHERE is_default = TRUE")
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query(
+                "UPDATE smetric_oidc_provider SET is_default = FALSE WHERE is_default = TRUE",
+            )
+            .execute(&mut *tx)
+            .await?;
         }
         let provider = sqlx::query_as::<_, Self>(
             "INSERT INTO smetric_oidc_provider \
@@ -196,11 +198,13 @@ impl SMetricOidcProvider {
     }
 
     pub async fn delete(pool: &PgPool, id: i64) -> sqlx::Result<bool> {
-        Ok(sqlx::query("DELETE FROM smetric_oidc_provider WHERE id = $1")
-            .bind(id)
-            .execute(pool)
-            .await?
-            .rows_affected()
-            > 0)
+        Ok(
+            sqlx::query("DELETE FROM smetric_oidc_provider WHERE id = $1")
+                .bind(id)
+                .execute(pool)
+                .await?
+                .rows_affected()
+                > 0,
+        )
     }
 }

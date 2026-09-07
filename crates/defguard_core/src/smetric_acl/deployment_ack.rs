@@ -36,10 +36,29 @@ pub async fn acknowledge(
 ) -> Result<Json<DeploymentAcknowledgementResult>, Response> {
     let checksum = input.checksum.trim();
     if input.location_id <= 0 || input.generation <= 0 || checksum.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "invalid deployment acknowledgement").into_response());
+        tracing::warn!(
+            security_event = "smetric_acl_deployment_ack_rejected",
+            location_id = input.location_id,
+            generation = input.generation,
+            reason = "invalid_acknowledgement",
+            "Rejected invalid S-Metric firewall deployment acknowledgement"
+        );
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "invalid deployment acknowledgement",
+        )
+            .into_response());
     }
 
     if input.success && input.error.is_some() {
+        tracing::warn!(
+            security_event = "smetric_acl_deployment_ack_rejected",
+            location_id = input.location_id,
+            generation = input.generation,
+            checksum,
+            reason = "success_with_error",
+            "Rejected malformed S-Metric firewall deployment acknowledgement"
+        );
         return Err((
             StatusCode::BAD_REQUEST,
             "successful acknowledgement must not contain an error",
@@ -47,33 +66,40 @@ pub async fn acknowledge(
             .into_response());
     }
 
-    // Bind both generation and checksum to the current desired location state. This prevents a
-    // stale gateway response from acknowledging a newer aggregate configuration that happens to
-    // share the same location id.
-    let desired = get(&state.pool, input.location_id)
-        .await
-        .map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to load desired deployment state: {error}"),
-            )
-                .into_response()
-        })?;
+    let desired = get(&state.pool, input.location_id).await.map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to load desired deployment state: {error}"),
+        )
+            .into_response()
+    })?;
     let Some(desired) = desired else {
+        tracing::warn!(
+            security_event = "smetric_acl_deployment_ack_stale",
+            location_id = input.location_id,
+            generation = input.generation,
+            checksum,
+            reason = "no_desired_state",
+            "Ignored S-Metric firewall deployment acknowledgement without desired state"
+        );
         return Ok(Json(DeploymentAcknowledgementResult { accepted: false }));
     };
     if desired.desired_generation != input.generation || desired.desired_checksum != checksum {
+        tracing::warn!(
+            security_event = "smetric_acl_deployment_ack_stale",
+            location_id = input.location_id,
+            generation = input.generation,
+            desired_generation = desired.desired_generation,
+            checksum,
+            desired_checksum = %desired.desired_checksum,
+            reason = "generation_or_checksum_mismatch",
+            "Ignored stale S-Metric firewall deployment acknowledgement"
+        );
         return Ok(Json(DeploymentAcknowledgementResult { accepted: false }));
     }
 
     let accepted = if input.success {
-        mark_applied(
-            &state.pool,
-            input.location_id,
-            input.generation,
-            checksum,
-        )
-        .await
+        mark_applied(&state.pool, input.location_id, input.generation, checksum).await
     } else {
         let error = input
             .error
@@ -96,6 +122,36 @@ pub async fn acknowledge(
         )
             .into_response()
     })?;
+
+    if accepted {
+        if input.success {
+            tracing::info!(
+                security_event = "smetric_acl_deployment_applied",
+                location_id = input.location_id,
+                generation = input.generation,
+                checksum,
+                "S-Metric firewall deployment applied"
+            );
+        } else {
+            tracing::error!(
+                security_event = "smetric_acl_deployment_failed",
+                location_id = input.location_id,
+                generation = input.generation,
+                checksum,
+                error = %input.error.as_deref().unwrap_or_default(),
+                "S-Metric firewall deployment failed"
+            );
+        }
+    } else {
+        tracing::warn!(
+            security_event = "smetric_acl_deployment_ack_not_applied",
+            location_id = input.location_id,
+            generation = input.generation,
+            checksum,
+            success = input.success,
+            "S-Metric firewall deployment acknowledgement was not applied"
+        );
+    }
 
     Ok(Json(DeploymentAcknowledgementResult { accepted }))
 }

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
 import { m } from '../../../../paraglide/messages';
 import api from '../../../../shared/api/api';
+import { branding } from '../../../../shared/branding/branding';
 import { Controls } from '../../../../shared/components/Controls/Controls';
 import { LoadingStep } from '../../../../shared/components/LoadingStep/LoadingStep';
 import { WizardCard } from '../../../../shared/components/wizard/WizardCard/WizardCard';
@@ -89,7 +90,6 @@ export const SetupExternalUrlSslConfigStep = () => {
     { onMessage: handleAcmeEvent },
   );
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: only run on mount
   useEffect(() => {
     if (sslType !== 'lets_encrypt') return;
     setAcmeState(defaultAcmeState);
@@ -99,9 +99,6 @@ export const SetupExternalUrlSslConfigStep = () => {
     };
   }, []);
 
-  // If ssl_type is not set (e.g. fresh browser session), redirect back so the
-  // user can re-submit the settings step and repopulate the store.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: only run on mount
   useEffect(() => {
     if (sslType === null) {
       setActiveStep(SetupPageStep.ExternalUrlSettings);
@@ -157,7 +154,7 @@ export const SetupExternalUrlSslConfigStep = () => {
           </div>
           <Divider />
           <ul className="ssl-port-list">
-            <li>{m.initial_setup_auto_adoption_external_url_ssl_no_ssl_port()}</li>
+            <li>Edge service via TCP port 8080</li>
           </ul>
         </div>
       );
@@ -165,27 +162,11 @@ export const SetupExternalUrlSslConfigStep = () => {
 
     if (sslType === 'lets_encrypt') {
       const steps: { id: AcmeStepId; title: string }[] = [
-        {
-          id: 'CheckingDomain',
-          title:
-            m.initial_setup_auto_adoption_external_url_ssl_lets_encrypt_checking_domain(),
-        },
-        {
-          id: 'Connecting',
-          title: m.initial_setup_auto_adoption_external_url_ssl_lets_encrypt_connecting(),
-        },
-        {
-          id: 'ValidatingDomain',
-          title: m.initial_setup_auto_adoption_external_url_ssl_lets_encrypt_validating(),
-        },
-        {
-          id: 'IssuingCertificate',
-          title: m.initial_setup_auto_adoption_external_url_ssl_lets_encrypt_issuing(),
-        },
-        {
-          id: 'Installing',
-          title: m.initial_setup_auto_adoption_external_url_ssl_lets_encrypt_installing(),
-        },
+        { id: 'CheckingDomain', title: m.initial_setup_auto_adoption_external_url_ssl_lets_encrypt_checking_domain() },
+        { id: 'Connecting', title: m.initial_setup_auto_adoption_external_url_ssl_lets_encrypt_connecting() },
+        { id: 'ValidatingDomain', title: m.initial_setup_auto_adoption_external_url_ssl_lets_encrypt_validating() },
+        { id: 'IssuingCertificate', title: m.initial_setup_auto_adoption_external_url_ssl_lets_encrypt_issuing() },
+        { id: 'Installing', title: m.initial_setup_auto_adoption_external_url_ssl_lets_encrypt_installing() },
       ];
       return (
         <div className="ssl-result-card">
@@ -239,7 +220,7 @@ export const SetupExternalUrlSslConfigStep = () => {
           <div className="ssl-result-validated-card-content gap-xl">
             <div className="ssl-result-card-header">
               <h3>{m.initial_setup_auto_adoption_external_url_ssl_ca_title()}</h3>
-              <p>{m.initial_setup_auto_adoption_external_url_ssl_ca_description()}</p>
+              <p>{`The Edge service is secured with ${branding.productName}'s internal CA. Download the CA root certificate and install it on systems that need to trust this endpoint.`}</p>
             </div>
             <div>
               <Button
@@ -283,9 +264,7 @@ export const SetupExternalUrlSslConfigStep = () => {
                     {m.initial_setup_auto_adoption_external_url_ssl_own_validity()}
                   </span>
                   <span className="value">
-                    {m.initial_setup_auto_adoption_external_url_ssl_own_validity_days({
-                      days: certInfo.valid_for_days,
-                    })}
+                    {m.initial_setup_auto_adoption_external_url_ssl_own_validity_days({ days: certInfo.valid_for_days })}
                   </span>
                 </div>
               </div>

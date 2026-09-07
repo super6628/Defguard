@@ -12,11 +12,7 @@ import { useMemo } from 'react';
 import { m } from '../../paraglide/messages';
 import api from '../../shared/api/api';
 import { getApiErrorMessage } from '../../shared/api/apiErrorMessages';
-import {
-  type ApiError,
-  LocationMfaMode,
-  type NetworkDevice,
-} from '../../shared/api/types';
+import type { ApiError, NetworkDevice } from '../../shared/api/types';
 import { Badge } from '../../shared/defguard-ui/components/Badge/Badge';
 import { Button } from '../../shared/defguard-ui/components/Button/Button';
 import type { ButtonProps } from '../../shared/defguard-ui/components/Button/types';
@@ -58,10 +54,7 @@ export const NetworkDevicesTable = ({ networkDevices }: Props) => {
       const availableLocations = orderBy(
         locations.filter((location) => {
           const withoutPostureChecks = (location.posture_checks?.length ?? 0) === 0;
-          return (
-            location.location_mfa_mode === LocationMfaMode.Disabled &&
-            withoutPostureChecks
-          );
+          return !location.mfa_enabled && withoutPostureChecks;
         }),
         ['name'],
         ['asc'],

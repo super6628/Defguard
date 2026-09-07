@@ -13,6 +13,12 @@ export const NavLogo = () => {
     );
   }
 
+  const shortName = branding.shortName.trim();
+  const productName = branding.productName.trim();
+  const productSuffix = productName.toLowerCase().startsWith(shortName.toLowerCase())
+    ? productName.slice(shortName.length).trim()
+    : productName;
+
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -36,18 +42,20 @@ export const NavLogo = () => {
         fontWeight="700"
         style={{ fill: ThemeVariable.BgInverted }}
       >
-        {branding.shortName.toUpperCase()}
+        {(shortName || productName).toUpperCase()}
       </text>
-      <text
-        x="35"
-        y="24"
-        fontFamily="Inter, system-ui, sans-serif"
-        fontSize="10"
-        fontWeight="500"
-        style={{ fill: ThemeVariable.FgFaded }}
-      >
-        {branding.productName.replace(branding.shortName, '').trim().toUpperCase() || 'SECURE'}
-      </text>
+      {productSuffix && productSuffix.toLowerCase() !== shortName.toLowerCase() && (
+        <text
+          x="35"
+          y="24"
+          fontFamily="Inter, system-ui, sans-serif"
+          fontSize="10"
+          fontWeight="500"
+          style={{ fill: ThemeVariable.FgFaded }}
+        >
+          {productSuffix.toUpperCase()}
+        </text>
+      )}
     </svg>
   );
 };

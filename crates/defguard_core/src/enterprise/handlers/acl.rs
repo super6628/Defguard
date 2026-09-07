@@ -137,6 +137,57 @@ pub struct EditAclRule {
 
 impl EditAclRule {
     pub async fn validate(&self, conn: &mut PgConnection) -> Result<(), WebError> {
+        if self.name.trim().is_empty() {
+            return Err(WebError::BadRequest("Rule name cannot be empty".to_owned()));
+        }
+        if !self.all_locations && self.locations.is_empty() {
+            return Err(WebError::BadRequest(
+                "Must provide at least one location when all locations are disabled".to_owned(),
+            ));
+        }
+        if self.allow_all_users && self.deny_all_users {
+            return Err(WebError::BadRequest(
+                "Cannot allow and deny all users at the same time".to_owned(),
+            ));
+        }
+        if self.allow_all_groups && self.deny_all_groups {
+            return Err(WebError::BadRequest(
+                "Cannot allow and deny all groups at the same time".to_owned(),
+            ));
+        }
+        if self.allow_all_network_devices && self.deny_all_network_devices {
+            return Err(WebError::BadRequest(
+                "Cannot allow and deny all network devices at the same time".to_owned(),
+            ));
+        }
+        if self
+            .allowed_users
+            .iter()
+            .any(|id| self.denied_users.contains(id))
+        {
+            return Err(WebError::BadRequest(
+                "A user cannot be both allowed and denied in the same rule".to_owned(),
+            ));
+        }
+        if self
+            .allowed_groups
+            .iter()
+            .any(|id| self.denied_groups.contains(id))
+        {
+            return Err(WebError::BadRequest(
+                "A group cannot be both allowed and denied in the same rule".to_owned(),
+            ));
+        }
+        if self
+            .allowed_network_devices
+            .iter()
+            .any(|id| self.denied_network_devices.contains(id))
+        {
+            return Err(WebError::BadRequest(
+                "A network device cannot be both allowed and denied in the same rule".to_owned(),
+            ));
+        }
+
         if self.use_manual_destination_settings {
             // Determine what the selected component aliases collectively contribute.
             // Note: Component-kind aliases always have any_address/any_port/any_protocol = false,
@@ -396,7 +447,7 @@ pub(crate) async fn get_acl_rule(
     request_body(content = EditAclRule, description = "The rule starts working after `PUT /api/v1/acl/rule/apply`.", example = json!({"name": "allow-web", "all_locations": false, "locations": [1], "enabled": true, "allow_all_users": false, "deny_all_users": false, "allow_all_groups": false, "deny_all_groups": false, "allow_all_network_devices": false, "deny_all_network_devices": false, "allowed_users": [1], "denied_users": [], "allowed_groups": [], "denied_groups": [], "allowed_network_devices": [], "denied_network_devices": [], "use_manual_destination_settings": true, "addresses": "10.0.0.0/24", "ports": "80, 443", "protocols": [6], "any_address": false, "any_port": false, "any_protocol": false, "aliases": [], "destinations": [], "expires": null})),
     responses(
         (status = 201, description = "ACL rule created.", body = ApiAclRule),
-        (status = 400, description = "Cannot use a modified alias in an ACL rule.", body = ApiErrorResponse, example = json!({"msg": "Cannot use modified alias in ACL rule [1]"})),
+        (status = 400, description = "Rule validation failed, for example because the name is blank, locations or sources are missing, allow/deny settings conflict, or destination settings are invalid.", body = ApiErrorResponse, example = json!({"msg": "Rule name cannot be empty"})),
         (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
         (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
         (status = 422, description = "Invalid addresses, ports or protocols.", body = ApiErrorResponse, example = json!({"msg": "Unprocessable entity"})),
@@ -443,7 +494,7 @@ pub(crate) async fn create_acl_rule(
     request_body = EditAclRule,
     responses(
         (status = 200, description = "ACL rule updated.", body = ApiAclRule),
-        (status = 400, description = "Cannot modify a deleted ACL rule.", body = ApiErrorResponse, example = json!({"msg": "Cannot modify deleted ACL rule 1"})),
+        (status = 400, description = "Rule validation failed or the rule cannot be modified in its current state.", body = ApiErrorResponse, example = json!({"msg": "Rule name cannot be empty"})),
         (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
         (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
         (status = 404, description = "ACL rule not found.", body = ApiErrorResponse, example = json!({"msg": "Rule 1 not found"})),
@@ -524,7 +575,7 @@ pub(crate) async fn delete_acl_rule(
     request_body = ApplyAclRulesData,
     responses(
         (status = 200, description = "Pending rule changes applied."),
-        (status = 400, description = "ACL rule is already applied.", body = ApiErrorResponse, example = json!({"msg": "Rule 1 already applied"})),
+        (status = 400, description = "Apply batch is empty or an ACL rule is already applied.", body = ApiErrorResponse, example = json!({"msg": "Must provide at least one ACL rule to apply"})),
         (status = 401, description = "Session is missing or invalid.", body = ApiErrorResponse, example = json!({"msg": "Session is required"})),
         (status = 403, description = "Requires admin privileges and an active enterprise license.", body = ApiErrorResponse, example = json!({"msg": "requires privileged access"})),
         (status = 404, description = "ACL rule not found.", body = ApiErrorResponse, example = json!({"msg": "Rule 1 not found"})),
@@ -542,6 +593,12 @@ pub(crate) async fn apply_acl_rules(
     session: SessionInfo,
     Json(data): Json<ApplyAclRulesData>,
 ) -> ApiResult {
+    if data.rules.is_empty() {
+        return Err(WebError::BadRequest(
+            "Must provide at least one ACL rule to apply".to_owned(),
+        ));
+    }
+
     debug!(
         "User {} applying ACL rules: {:?}",
         session.user.username, data.rules
