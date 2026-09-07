@@ -1,0 +1,88 @@
+name: Fork CI
+
+on:
+  pull_request:
+    branches:
+      - dev
+  push:
+    branches:
+      - "promotion/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    env:
+      SQLX_OFFLINE: true
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust components
+        run: rustup component add rustfmt clippy
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Check format
+        run: cargo fmt -- --check
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: Run cargo deny
+        run: cargo deny check --hide-inclusion-graph
+
+  test:
+    runs-on: ubuntu-latest
+    env:
+      SQLX_OFFLINE: true
+      CARGO_TERM_COLOR: always
+      DEFGUARD_DB_HOST: localhost
+      DEFGUARD_DB_PORT: 5432
+      DEFGUARD_DB_NAME: defguard
+      DEFGUARD_DB_USER: defguard
+      DEFGUARD_DB_PASSWORD: defguard
+      DATABASE_URL: postgresql://defguard:defguard@localhost:5432/defguard
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: defguard
+          POSTGRES_USER: defguard
+          POSTGRES_PASSWORD: defguard
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Run all-feature tests
+        run: cargo nextest run --locked --all-features --no-fail-fast
