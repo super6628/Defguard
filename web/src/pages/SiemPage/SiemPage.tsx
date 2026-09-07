@@ -13,6 +13,12 @@ import { useAuth } from '../../shared/hooks/useAuth';
 import { displayDate } from '../../shared/utils/displayDate';
 import { SiemInvestigationNotes } from './SiemInvestigationNotes';
 import {
+  parseSiemAlertState,
+  toggleSiemAlertState,
+  type SiemAlertState,
+  type SiemAlertStatus,
+} from './siem-alert-state';
+import {
   SIEM_RULE_DEFINITIONS,
   countSiemDetection,
   getEventTypesForSeverity,
@@ -27,12 +33,12 @@ import './style.scss';
 
 type Severity = SiemSeverity;
 type DetectionRuleId = SiemDetectionRuleId;
-type AlertStatus = 'open' | 'acknowledged';
+type AlertStatus = SiemAlertStatus;
 type AlertView = 'all' | 'alerts' | 'open' | 'acknowledged' | 'events';
 type DetectionView = DetectionRuleId | 'all';
 type TimeRange = 'all' | '1h' | '24h' | '7d' | '30d';
 type PersistedRuleState = Record<DetectionRuleId, boolean>;
-type PersistedAlertState = Record<string, AlertStatus>;
+type PersistedAlertState = SiemAlertState;
 
 type DetectionSummary = {
   id: DetectionRuleId;
@@ -94,21 +100,8 @@ const loadRuleState = (username?: string): PersistedRuleState => {
   }
 };
 
-const loadAlertState = (username?: string): PersistedAlertState => {
-  const stored = readSiemScopedStorage(SIEM_ALERTS_STORAGE_KEY, username);
-  if (!stored) return {};
-
-  try {
-    const parsed = JSON.parse(stored) as Record<string, unknown>;
-    return Object.fromEntries(
-      Object.entries(parsed).filter(
-        ([, status]) => status === 'open' || status === 'acknowledged',
-      ),
-    ) as PersistedAlertState;
-  } catch {
-    return {};
-  }
-};
+const loadAlertState = (username?: string): PersistedAlertState =>
+  parseSiemAlertState(readSiemScopedStorage(SIEM_ALERTS_STORAGE_KEY, username));
 
 export const SiemPage = () => {
   const username = useAuth((state) => state.user?.username);
@@ -167,7 +160,7 @@ export const SiemPage = () => {
     [timeRange, timeRangeAnchor],
   );
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: [
       'siem',
       'activity-log',
@@ -241,7 +234,7 @@ export const SiemPage = () => {
         const detections = getSiemDetections(event);
         const activeDetections = detections.filter((ruleId) => ruleState[ruleId]);
         const isAlert = activeDetections.length > 0;
-        const status = alertState[String(event.id)] ?? 'open';
+        const status: AlertStatus = alertState[String(event.id)] ?? 'open';
         const matchesDetection =
           detectionView === 'all' || detections.includes(detectionView);
         const matchesStatus =
@@ -263,7 +256,7 @@ export const SiemPage = () => {
   }, [selectedEvent, visibleEvents]);
 
   const selectedSeverity = selectedEvent ? getSiemSeverity(selectedEvent) : null;
-  const selectedAlertStatus = selectedEvent
+  const selectedAlertStatus: AlertStatus | null = selectedEvent
     ? alertState[String(selectedEvent.id)] ?? 'open'
     : null;
   const selectedDetections = selectedEvent ? getSiemDetections(selectedEvent) : [];
@@ -274,11 +267,7 @@ export const SiemPage = () => {
   };
 
   const toggleAlertStatus = (eventId: number) => {
-    const key = String(eventId);
-    setAlertState((current) => ({
-      ...current,
-      [key]: current[key] === 'acknowledged' ? 'open' : 'acknowledged',
-    }));
+    setAlertState((current) => toggleSiemAlertState(current, eventId));
   };
 
   const updateTimeRange = (nextRange: TimeRange) => {
@@ -416,8 +405,13 @@ export const SiemPage = () => {
                     Reset filters
                   </button>
                 )}
-                <button className="siem-refresh" type="button" onClick={() => void refetch()}>
-                  Refresh
+                <button
+                  className="siem-refresh"
+                  type="button"
+                  disabled={isFetching}
+                  onClick={() => void refetch()}
+                >
+                  {isFetching ? 'Refreshing…' : 'Refresh'}
                 </button>
               </div>
             </div>
@@ -543,7 +537,7 @@ export const SiemPage = () => {
                       const networkContext = [event.ip, event.location].filter(Boolean).join(' · ');
                       const isSelected = selectedEvent?.id === event.id;
                       const isAlert = eventDetections.some((ruleId) => ruleState[ruleId]);
-                      const eventStatus = alertState[String(event.id)] ?? 'open';
+                      const eventStatus: AlertStatus = alertState[String(event.id)] ?? 'open';
                       return (
                         <tr
                           className={[
@@ -712,8 +706,9 @@ export const SiemPage = () => {
           <strong>Core owns event classification; SIEM controls remain non-destructive.</strong>
           <span>
             Search, severity, source, and time-window filters apply across server history. Detection
-            and acknowledgement filters, investigation notes, and CSV export operate on the current
-            browser session/page until server-side SIEM persistence and export APIs are introduced.
+            and acknowledgement filters apply to the current page; investigation notes and
+            acknowledgements persist for this administrator in this browser. CSV export includes the
+            current visible page until server-side SIEM persistence and export APIs are introduced.
           </span>
         </section>
       </div>
