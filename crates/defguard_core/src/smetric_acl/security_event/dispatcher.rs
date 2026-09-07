@@ -6,9 +6,7 @@ use serde::Serialize;
 use sqlx::PgPool;
 use tokio::{sync::watch, time::MissedTickBehavior};
 
-use super::{
-    QueuedSecurityEvent, claim_pending, mark_dead_lettered, mark_delivered, mark_failed,
-};
+use super::{QueuedSecurityEvent, claim_pending, mark_dead_lettered, mark_delivered, mark_failed};
 
 const MAX_DISPATCH_CONCURRENCY: i64 = 32;
 const MAX_CONFIGURATION_FAILURE_ATTEMPTS: i64 = 12;
@@ -40,7 +38,10 @@ impl HttpSiemTransport {
     }
 
     async fn send(&self, event: &QueuedSecurityEvent) -> Result<(), TransportError> {
-        let mut request = self.client.post(&self.endpoint).json(&SiemEnvelope::from(event));
+        let mut request = self
+            .client
+            .post(&self.endpoint)
+            .json(&SiemEnvelope::from(event));
         if let Some(token) = &self.bearer_token {
             request = request.bearer_auth(token);
         }
@@ -217,14 +218,10 @@ pub async fn dispatch_once(
                     || (error.is_bounded_configuration_failure()
                         && event.attempts >= MAX_CONFIGURATION_FAILURE_ATTEMPTS) =>
             {
-                let updated = mark_dead_lettered(
-                    pool,
-                    event.event_id,
-                    event.attempts,
-                    &error.to_string(),
-                )
-                .await
-                .map_err(DispatchError::State)?;
+                let updated =
+                    mark_dead_lettered(pool, event.event_id, event.attempts, &error.to_string())
+                        .await
+                        .map_err(DispatchError::State)?;
                 Ok(if updated {
                     DispatchOutcome::DeadLettered
                 } else {
@@ -272,7 +269,9 @@ pub async fn run_dispatcher(
     mut shutdown: watch::Receiver<bool>,
 ) {
     if *shutdown.borrow() {
-        tracing::debug!("S-Metric SIEM dispatcher not started because shutdown was already requested");
+        tracing::debug!(
+            "S-Metric SIEM dispatcher not started because shutdown was already requested"
+        );
         return;
     }
 

@@ -89,6 +89,7 @@ pub enum EventType {
     VpnClientMfaFailed,
     VpnClientSessionSuperseded,
     VpnClientMfaSessionSuperseded,
+    VpnClientMfaLoginSuperseded,
     // Enrollment events
     EnrollmentTokenAdded,
     EnrollmentStarted,
@@ -144,6 +145,11 @@ pub enum EventType {
     DevicePostureDuplicated,
     DevicePostureLocationsAssigned,
     LocationPosturesAssigned,
+    // MFA flow management
+    MfaFlowCreated,
+    MfaFlowUpdated,
+    MfaFlowDeleted,
+    LocationMfaFlowsAssigned,
     DevicePostureCheckPassed,
     DevicePostureCheckFailed,
     // S-Metric firewall / ACL security events

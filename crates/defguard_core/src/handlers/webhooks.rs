@@ -60,11 +60,7 @@ pub struct WebHookTestResponse {
     pub error: Option<String>,
 }
 
-async fn send_test_webhook(
-    session: &SessionInfo,
-    appstate: &AppState,
-    id: Id,
-) -> ApiResult {
+async fn send_test_webhook(session: &SessionInfo, appstate: &AppState, id: Id) -> ApiResult {
     debug!("User {} testing webhook {id}", session.user.username);
     let Some(webhook) = WebHook::find_by_id(&appstate.pool, id).await? else {
         return Ok(ApiResponse::with_status(StatusCode::NOT_FOUND));
@@ -160,7 +156,10 @@ pub async fn add_webhook(
     let webhook: WebHook = webhookdata.into();
     let status = match webhook.save(&appstate.pool).await {
         Ok(webhook) => {
-            info!("User {} added webhook {}", session.user.username, webhook.id);
+            info!(
+                "User {} added webhook {}",
+                session.user.username, webhook.id
+            );
             appstate.emit_event(ApiEvent {
                 context,
                 event: Box::new(ApiEventType::WebHookAdded {

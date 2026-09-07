@@ -5,7 +5,9 @@ use tokio::sync::broadcast::Sender;
 
 use super::{
     gateway::GatewayEnforcementError,
-    location_deployment::{ensure_desired as ensure_location_desired, mark_error as mark_location_error},
+    location_deployment::{
+        ensure_desired as ensure_location_desired, mark_error as mark_location_error,
+    },
     location_effective::compile_location_firewall,
     security_event::{NewSecurityEvent, SecurityEventCategory, enqueue},
 };

@@ -123,16 +123,19 @@ pub async fn set_enabled(
     policy_id: i64,
     enabled: bool,
 ) -> Result<(), TrafficPolicyError> {
-    if enabled && load_latest_published_policy(pool, policy_id).await?.is_none() {
+    if enabled
+        && load_latest_published_policy(pool, policy_id)
+            .await?
+            .is_none()
+    {
         return Err(TrafficPolicyError::NeverPublished(policy_id));
     }
-    let result = sqlx::query(
-        "UPDATE smetric_traffic_policy SET enabled=$2,updated_at=NOW() WHERE id=$1",
-    )
-    .bind(policy_id)
-    .bind(enabled)
-    .execute(pool)
-    .await?;
+    let result =
+        sqlx::query("UPDATE smetric_traffic_policy SET enabled=$2,updated_at=NOW() WHERE id=$1")
+            .bind(policy_id)
+            .bind(enabled)
+            .execute(pool)
+            .await?;
     if result.rows_affected() == 0 {
         return Err(TrafficPolicyError::NotFound(policy_id));
     }
@@ -168,7 +171,9 @@ pub async fn load_latest_published_policy(
     snapshot
         .map(serde_json::from_value)
         .transpose()
-        .map_err(|error| TrafficPolicyError::InvalidStoredValue(format!("invalid published snapshot: {error}")))
+        .map_err(|error| {
+            TrafficPolicyError::InvalidStoredValue(format!("invalid published snapshot: {error}"))
+        })
 }
 
 pub async fn list_policies(pool: &PgPool) -> Result<Vec<TrafficPolicy>, TrafficPolicyError> {
@@ -296,30 +301,24 @@ async fn validate_targets(
                 format!("location:{id}"),
             ),
             TrafficTarget::Group(id) => (
-                sqlx::query_scalar::<_, bool>(
-                    "SELECT EXISTS(SELECT 1 FROM \"group\" WHERE id=$1)",
-                )
-                .bind(id)
-                .fetch_one(pool)
-                .await?,
+                sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM \"group\" WHERE id=$1)")
+                    .bind(id)
+                    .fetch_one(pool)
+                    .await?,
                 format!("group:{id}"),
             ),
             TrafficTarget::User(id) => (
-                sqlx::query_scalar::<_, bool>(
-                    "SELECT EXISTS(SELECT 1 FROM \"user\" WHERE id=$1)",
-                )
-                .bind(id)
-                .fetch_one(pool)
-                .await?,
+                sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM \"user\" WHERE id=$1)")
+                    .bind(id)
+                    .fetch_one(pool)
+                    .await?,
                 format!("user:{id}"),
             ),
             TrafficTarget::Device(id) => (
-                sqlx::query_scalar::<_, bool>(
-                    "SELECT EXISTS(SELECT 1 FROM device WHERE id=$1)",
-                )
-                .bind(id)
-                .fetch_one(pool)
-                .await?,
+                sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM device WHERE id=$1)")
+                    .bind(id)
+                    .fetch_one(pool)
+                    .await?,
                 format!("device:{id}"),
             ),
         };
@@ -471,7 +470,9 @@ fn parse_mode(value: &str) -> Result<TrafficMode, TrafficPolicyError> {
         "full_tunnel" => Ok(TrafficMode::FullTunnel),
         "split_tunnel" => Ok(TrafficMode::SplitTunnel),
         "bypass" => Ok(TrafficMode::Bypass),
-        _ => Err(TrafficPolicyError::InvalidStoredValue(format!("mode {value}"))),
+        _ => Err(TrafficPolicyError::InvalidStoredValue(format!(
+            "mode {value}"
+        ))),
     }
 }
 
@@ -489,7 +490,9 @@ fn parse_target(kind: &str, value: Option<String>) -> Result<TrafficTarget, Traf
     let id = || {
         value
             .as_deref()
-            .ok_or_else(|| TrafficPolicyError::InvalidStoredValue(format!("missing {kind} target")))?
+            .ok_or_else(|| {
+                TrafficPolicyError::InvalidStoredValue(format!("missing {kind} target"))
+            })?
             .parse::<i64>()
             .map_err(|_| TrafficPolicyError::InvalidStoredValue(format!("invalid {kind} target")))
     };
@@ -499,7 +502,9 @@ fn parse_target(kind: &str, value: Option<String>) -> Result<TrafficTarget, Traf
         "group" => Ok(TrafficTarget::Group(id()?)),
         "user" => Ok(TrafficTarget::User(id()?)),
         "device" => Ok(TrafficTarget::Device(id()?)),
-        _ => Err(TrafficPolicyError::InvalidStoredValue(format!("target kind {kind}"))),
+        _ => Err(TrafficPolicyError::InvalidStoredValue(format!(
+            "target kind {kind}"
+        ))),
     }
 }
 
@@ -517,9 +522,11 @@ fn parse_destination(kind: &str, value: &str) -> Result<TrafficDestination, Traf
                 TrafficPolicyError::InvalidStoredValue(format!("invalid CIDR {value}"))
             })?,
         )),
-        "ip" => Ok(TrafficDestination::Ip(IpAddr::from_str(value).map_err(|_| {
-            TrafficPolicyError::InvalidStoredValue(format!("invalid IP {value}"))
-        })?)),
-        _ => Err(TrafficPolicyError::InvalidStoredValue(format!("destination kind {kind}"))),
+        "ip" => Ok(TrafficDestination::Ip(IpAddr::from_str(value).map_err(
+            |_| TrafficPolicyError::InvalidStoredValue(format!("invalid IP {value}")),
+        )?)),
+        _ => Err(TrafficPolicyError::InvalidStoredValue(format!(
+            "destination kind {kind}"
+        ))),
     }
 }

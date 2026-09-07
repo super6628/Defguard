@@ -7,8 +7,7 @@ mod test {
         db::{
             models::{
                 Device, DeviceType, Session, SessionState, Settings, User, WireguardNetwork,
-                settings::initialize_current_settings,
-                wireguard::{LocationMfaMode, ServiceLocationMode},
+                settings::initialize_current_settings, wireguard::ServiceLocationMode,
             },
             setup_pool,
         },
@@ -31,6 +30,22 @@ mod test {
         events::{DirectorySyncEvent, LdapSyncEventType},
         grpc::proto::enterprise::license::LicenseLimits,
     };
+
+    /// Install a Business-tier licence with no limits.
+    ///
+    /// Tests needing specific limits build their own licence instead.
+    fn set_business_license() {
+        set_cached_license(Some(License::new(
+            "test".to_owned(),
+            false,
+            None,
+            None,
+            None,
+            LicenseTier::Business,
+            SupportType::Basic,
+            vec![],
+        )));
+    }
 
     async fn do_test_directory_sync(pool: &PgPool, gateway_tx: &broadcast::Sender<GatewayCommand>) {
         let (ldap_tx, _ldap_rx) = mpsc::unbounded_channel::<LdapSyncEventType>();
@@ -70,6 +85,12 @@ mod test {
         target: DirectorySyncTarget,
         prefetch_users: bool,
     ) -> OpenIdProvider<Id> {
+        // Directory sync is a business feature and its licence gate is compiled into test
+        // builds, so without a licence every entry point below returns `Ok(())` without doing
+        // any work. Seed one here; a test wanting the unlicensed path calls
+        // `set_cached_license(None)` afterwards.
+        set_business_license();
+
         Settings::initialize_runtime_defaults(pool).await.unwrap();
         initialize_current_settings(pool).await.unwrap();
 
@@ -89,7 +110,7 @@ mod test {
             false,
             false,
             false,
-            LocationMfaMode::Disabled,
+            false, // mfa_enabled
             ServiceLocationMode::Disabled,
         )
         .set_address([IpNetwork::from_str("10.10.10.1/24").unwrap()])

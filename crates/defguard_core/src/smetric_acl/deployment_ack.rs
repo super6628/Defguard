@@ -43,7 +43,11 @@ pub async fn acknowledge(
             reason = "invalid_acknowledgement",
             "Rejected invalid S-Metric firewall deployment acknowledgement"
         );
-        return Err((StatusCode::BAD_REQUEST, "invalid deployment acknowledgement").into_response());
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "invalid deployment acknowledgement",
+        )
+            .into_response());
     }
 
     if input.success && input.error.is_some() {
@@ -62,15 +66,13 @@ pub async fn acknowledge(
             .into_response());
     }
 
-    let desired = get(&state.pool, input.location_id)
-        .await
-        .map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to load desired deployment state: {error}"),
-            )
-                .into_response()
-        })?;
+    let desired = get(&state.pool, input.location_id).await.map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to load desired deployment state: {error}"),
+        )
+            .into_response()
+    })?;
     let Some(desired) = desired else {
         tracing::warn!(
             security_event = "smetric_acl_deployment_ack_stale",
@@ -97,13 +99,7 @@ pub async fn acknowledge(
     }
 
     let accepted = if input.success {
-        mark_applied(
-            &state.pool,
-            input.location_id,
-            input.generation,
-            checksum,
-        )
-        .await
+        mark_applied(&state.pool, input.location_id, input.generation, checksum).await
     } else {
         let error = input
             .error

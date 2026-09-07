@@ -12,13 +12,18 @@ use defguard_common::{
 use serde_json::json;
 use utoipa::ToSchema;
 
-use super::{ApiErrorResponse, ApiResponse, ApiResult, webhooks::ChangeStateData};
+use super::{ApiErrorResponse, ApiResponse, ApiResult};
 use crate::{
     appstate::AppState,
     auth::{AdminRole, SessionInfo},
     events::{ApiEvent, ApiEventType, ApiRequestContext},
     handlers::pagination::{PaginatedApiResponse, PaginatedApiResult, PaginationParams},
 };
+
+#[derive(Deserialize, Serialize, ToSchema)]
+pub struct ChangeStateData {
+    pub enabled: bool,
+}
 
 #[derive(Deserialize, Serialize, ToSchema)]
 pub struct NewOpenIDClient {

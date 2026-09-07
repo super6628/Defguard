@@ -64,16 +64,19 @@ pub async fn list_for_policy(
     pool: &PgPool,
     policy_id: i64,
 ) -> Result<Vec<PolicyLocationDeploymentStatus>, sqlx::Error> {
-    let rows = sqlx::query_as::<_, (
-        i64,
-        i64,
-        Option<i64>,
-        Option<String>,
-        Option<i64>,
-        Option<String>,
-        Option<String>,
-        bool,
-    )>(
+    let rows = sqlx::query_as::<
+        _,
+        (
+            i64,
+            i64,
+            Option<i64>,
+            Option<String>,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
+            bool,
+        ),
+    >(
         "SELECT a.policy_id, a.location_id, ds.desired_generation, ds.desired_checksum, \
                 ds.applied_generation, ds.applied_checksum, ds.last_error, \
                 EXISTS ( \
@@ -235,7 +238,9 @@ pub async fn mark_applied(
             SecurityEventCategory::Deployment,
             "location",
             Some(location_id.to_string()),
-            format!("S-Metric deployment generation {generation} applied at location {location_id}"),
+            format!(
+                "S-Metric deployment generation {generation} applied at location {location_id}"
+            ),
             json!({
                 "location_id": location_id,
                 "generation": generation,

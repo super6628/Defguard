@@ -151,10 +151,7 @@ impl ApiActivityLogEvent {
 
 fn classify_siem_event(event: &str) -> (SiemSeverity, Vec<SiemDetectionRuleId>) {
     let severity = match event {
-        "recovery_code_used"
-        | "mfa_disabled"
-        | "user_mfa_disabled"
-        | "gateway_deleted"
+        "recovery_code_used" | "mfa_disabled" | "user_mfa_disabled" | "gateway_deleted"
         | "proxy_deleted" => SiemSeverity::Critical,
         "user_login_failed"
         | "user_mfa_login_failed"
@@ -411,7 +408,10 @@ mod tests {
         let (severity, detections) = classify_siem_event("user_login_failed");
 
         assert_eq!(severity, SiemSeverity::High);
-        assert_eq!(detections, vec![SiemDetectionRuleId::AuthenticationFailures]);
+        assert_eq!(
+            detections,
+            vec![SiemDetectionRuleId::AuthenticationFailures]
+        );
     }
 
     #[test]
