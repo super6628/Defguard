@@ -2,6 +2,7 @@ import './style.scss';
 import { useNavigate } from '@tanstack/react-router';
 import { type ReactNode, useCallback, useMemo } from 'react';
 import { m } from '../../paraglide/messages';
+import { branding } from '../../shared/branding/branding';
 import type { WizardPageStep } from '../../shared/components/wizard/types';
 import { WizardCover } from '../../shared/components/wizard/WizardCoverImage/types';
 import { WizardCoverImage } from '../../shared/components/wizard/WizardCoverImage/WizardCoverImage';
@@ -101,7 +102,7 @@ export const GatewaySetupPage = () => {
         title: m.gateway_setup_welcome_title(),
         subtitle: m.gateway_setup_welcome_subtitle(),
         content: <WelcomePageContent />,
-        docsLink: 'https://docs.defguard.net/edge-component/deployment',
+        docsLink: branding.documentationUrl || undefined,
         docsText: m.gateway_setup_welcome_docs_text(),
         media: <WizardCoverImage variant={WizardCover.Gateway} />,
         onClose,

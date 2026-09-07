@@ -87,7 +87,11 @@ pub struct SystemInfo {
 
 impl fmt::Display for SystemInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {} {}", self.os_type, self.os_version, self.architecture)
+        write!(
+            f,
+            "{} {} {}",
+            self.os_type, self.os_version, self.architecture
+        )
     }
 }
 
@@ -104,7 +108,9 @@ impl SystemInfo {
     fn try_from_header_value(header_value: &str) -> Result<Self, DefguardVersionError> {
         let parts = header_value.split(';').collect::<Vec<_>>();
         if parts.len() != 3 {
-            return Err(DefguardVersionError::SystemInfoParseError(header_value.to_owned()));
+            return Err(DefguardVersionError::SystemInfoParseError(
+                header_value.to_owned(),
+            ));
         }
 
         Ok(Self {

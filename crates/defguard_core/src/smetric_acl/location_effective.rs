@@ -11,7 +11,7 @@ use sqlx::PgPool;
 use super::{
     DefaultAction, compile,
     gateway::{GatewayEnforcementError, resolve_snat_bindings, translate_policy_for_location},
-    service::{ServiceError, load_policy},
+    service::{ServiceError, load_latest_published_policy},
 };
 
 #[derive(Clone, Debug)]
@@ -30,10 +30,6 @@ pub async fn compile_location_firewall(
     compile_location_firewall_overrides(pool, location_id, None, None).await
 }
 
-/// Compile the effective location firewall while excluding one policy from consideration.
-///
-/// This is used by destructive/disable/unassign operations so the resulting gateway configuration
-/// can be validated before the database mutation is committed.
 pub async fn compile_location_firewall_without_policy(
     pool: &PgPool,
     location_id: i64,
@@ -42,10 +38,8 @@ pub async fn compile_location_firewall_without_policy(
     compile_location_firewall_overrides(pool, location_id, Some(excluded_policy_id), None).await
 }
 
-/// Compile the effective location firewall while force-including one published policy.
-///
-/// This supports prospective enable/assignment operations. The policy's current revision must
-/// already be published, but the policy/assignment does not have to be enabled yet.
+/// Compile the effective location firewall while force-including one policy that has an immutable
+/// published snapshot. The policy/assignment itself does not have to be enabled yet.
 pub async fn compile_location_firewall_with_policy(
     pool: &PgPool,
     location_id: i64,
@@ -54,11 +48,6 @@ pub async fn compile_location_firewall_with_policy(
     compile_location_firewall_overrides(pool, location_id, None, Some(included_policy_id)).await
 }
 
-/// Compile one authoritative firewall configuration for a VPN location.
-///
-/// Policies are ordered by policy id for now. Rules retain each policy's compiled rule ordering.
-/// A future explicit policy-priority field can replace policy-id ordering without changing this
-/// aggregation boundary.
 async fn compile_location_firewall_overrides(
     pool: &PgPool,
     location_id: i64,
@@ -83,7 +72,7 @@ async fn compile_location_firewall_overrides(
          WHERE ($2::bigint IS NULL OR p.id <> $2) \
            AND EXISTS ( \
                SELECT 1 FROM smetric_acl_revision rev \
-               WHERE rev.policy_id = p.id AND rev.revision = p.revision \
+               WHERE rev.policy_id = p.id AND rev.policy_snapshot IS NOT NULL \
            ) \
          ORDER BY candidate.id",
     )
@@ -94,16 +83,21 @@ async fn compile_location_firewall_overrides(
     .await?;
 
     let mut rules = Vec::new();
+    let mut effective_policy_ids = Vec::with_capacity(policy_ids.len());
     let mut policy_revisions = Vec::with_capacity(policy_ids.len());
     let mut default_policy = FirewallPolicy::Allow;
     let mut snat_bindings = None;
 
-    for policy_id in &policy_ids {
-        let policy = compile(load_policy(pool, *policy_id).await?).map_err(ServiceError::Validation)?;
+    for policy_id in policy_ids {
+        let Some(published) = load_latest_published_policy(pool, policy_id).await? else {
+            continue;
+        };
+        let policy = compile(published).map_err(ServiceError::Validation)?;
         if matches!(policy.default_action, DefaultAction::Deny) {
             default_policy = FirewallPolicy::Deny;
         }
-        policy_revisions.push((*policy_id, policy.revision));
+        effective_policy_ids.push(policy_id);
+        policy_revisions.push((policy_id, policy.revision));
 
         let rendered = translate_policy_for_location(pool, &policy, location_id).await?;
         rules.extend(rendered.rules);
@@ -125,7 +119,7 @@ async fn compile_location_firewall_overrides(
 
     Ok(EffectiveLocationFirewall {
         location_id,
-        policy_ids,
+        policy_ids: effective_policy_ids,
         policy_revisions,
         checksum,
         config,

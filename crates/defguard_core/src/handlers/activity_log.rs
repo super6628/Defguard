@@ -98,6 +98,27 @@ impl fmt::Display for SortOrder {
     }
 }
 
+/// Server-owned SIEM severity assigned to an activity log event.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum SiemSeverity {
+    Critical,
+    High,
+    Medium,
+    #[default]
+    Low,
+}
+
+/// Server-owned SIEM detection families matching an activity log event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum SiemDetectionRuleId {
+    AuthenticationFailures,
+    CredentialSecurityChanges,
+    PostureFailures,
+    InfrastructureChanges,
+}
+
 /// Activity log event as returned by the API.
 #[derive(Serialize, FromRow, ToSchema)]
 pub struct ApiActivityLogEvent {
@@ -112,12 +133,94 @@ pub struct ApiActivityLogEvent {
     pub module: ActivityLogModule,
     pub device: String,
     pub description: Option<String>,
+    /// SIEM severity derived by Core from the event type.
+    #[sqlx(skip)]
+    pub siem_severity: SiemSeverity,
+    /// SIEM detection families matched by Core for the event type.
+    #[sqlx(skip)]
+    pub siem_detections: Vec<SiemDetectionRuleId>,
+}
+
+impl ApiActivityLogEvent {
+    fn apply_siem_classification(&mut self) {
+        let (severity, detections) = classify_siem_event(&self.event);
+        self.siem_severity = severity;
+        self.siem_detections = detections;
+    }
+}
+
+fn classify_siem_event(event: &str) -> (SiemSeverity, Vec<SiemDetectionRuleId>) {
+    let severity = match event {
+        "recovery_code_used" | "mfa_disabled" | "user_mfa_disabled" | "gateway_deleted"
+        | "proxy_deleted" => SiemSeverity::Critical,
+        "user_login_failed"
+        | "user_mfa_login_failed"
+        | "vpn_client_mfa_failed"
+        | "device_posture_check_failed"
+        | "password_changed_by_admin"
+        | "password_reset"
+        | "user_removed"
+        | "device_removed"
+        | "network_device_removed" => SiemSeverity::High,
+        "settings_updated"
+        | "settings_updated_partial"
+        | "enterprise_settings_updated"
+        | "api_token_added"
+        | "authentication_key_added"
+        | "group_modified"
+        | "user_groups_modified"
+        | "gateway_disconnected"
+        | "proxy_disconnected" => SiemSeverity::Medium,
+        _ => SiemSeverity::Low,
+    };
+
+    let mut detections = Vec::new();
+
+    if matches!(
+        event,
+        "user_login_failed" | "user_mfa_login_failed" | "vpn_client_mfa_failed"
+    ) {
+        detections.push(SiemDetectionRuleId::AuthenticationFailures);
+    }
+
+    if matches!(
+        event,
+        "recovery_code_used"
+            | "mfa_disabled"
+            | "user_mfa_disabled"
+            | "password_changed_by_admin"
+            | "password_reset"
+            | "api_token_added"
+            | "authentication_key_added"
+    ) {
+        detections.push(SiemDetectionRuleId::CredentialSecurityChanges);
+    }
+
+    if event == "device_posture_check_failed" {
+        detections.push(SiemDetectionRuleId::PostureFailures);
+    }
+
+    if matches!(
+        event,
+        "gateway_deleted"
+            | "proxy_deleted"
+            | "gateway_disconnected"
+            | "proxy_disconnected"
+            | "settings_updated"
+            | "settings_updated_partial"
+            | "enterprise_settings_updated"
+    ) {
+        detections.push(SiemDetectionRuleId::InfrastructureChanges);
+    }
+
+    (severity, detections)
 }
 
 /// List activity log events
 ///
 /// Supports filtering by time range, module, event type and username, plus a free-text search
-/// over event descriptions.
+/// over event descriptions. Each event also includes Core-derived SIEM severity and detection
+/// metadata. These fields are additive and do not change Activity Log filtering or authorization.
 #[utoipa::path(
     get,
     path = "/api/v1/activity_log",
@@ -183,10 +286,13 @@ pub async fn get_activity_log_events(
         .push_bind(i64::from(pagination.offset()));
 
     // fetch filtered events
-    let events = query_builder
+    let mut events = query_builder
         .build_query_as::<ApiActivityLogEvent>()
         .fetch_all(&appstate.pool)
         .await?;
+    for event in &mut events {
+        event.apply_siem_classification();
+    }
 
     // execute count query
     // fetch total number of filtered events
@@ -280,4 +386,55 @@ fn apply_sorting(query_builder: &mut QueryBuilder<Postgres>, sorting: &SortParam
         .push(sorting.sort_order.to_string())
         .push(", id ")
         .push(sorting.sort_order.to_string());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SiemDetectionRuleId, SiemSeverity, classify_siem_event};
+
+    #[test]
+    fn classifies_critical_credential_event() {
+        let (severity, detections) = classify_siem_event("mfa_disabled");
+
+        assert_eq!(severity, SiemSeverity::Critical);
+        assert_eq!(
+            detections,
+            vec![SiemDetectionRuleId::CredentialSecurityChanges]
+        );
+    }
+
+    #[test]
+    fn classifies_high_authentication_failure() {
+        let (severity, detections) = classify_siem_event("user_login_failed");
+
+        assert_eq!(severity, SiemSeverity::High);
+        assert_eq!(
+            detections,
+            vec![SiemDetectionRuleId::AuthenticationFailures]
+        );
+    }
+
+    #[test]
+    fn classifies_posture_failure() {
+        let (severity, detections) = classify_siem_event("device_posture_check_failed");
+
+        assert_eq!(severity, SiemSeverity::High);
+        assert_eq!(detections, vec![SiemDetectionRuleId::PostureFailures]);
+    }
+
+    #[test]
+    fn classifies_medium_infrastructure_event() {
+        let (severity, detections) = classify_siem_event("settings_updated");
+
+        assert_eq!(severity, SiemSeverity::Medium);
+        assert_eq!(detections, vec![SiemDetectionRuleId::InfrastructureChanges]);
+    }
+
+    #[test]
+    fn keeps_unmapped_event_low_without_detection() {
+        let (severity, detections) = classify_siem_event("user_login");
+
+        assert_eq!(severity, SiemSeverity::Low);
+        assert!(detections.is_empty());
+    }
 }

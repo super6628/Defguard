@@ -9,6 +9,7 @@ export type BrandingConfig = {
   logoUrl: string;
   navLogoUrl: string;
   logoDarkUrl: string;
+  loginImageUrl: string;
   faviconUrl: string;
   primaryColor: string;
   loginTitle: string;
@@ -29,6 +30,7 @@ type ServerBranding = {
   logo_url: string;
   nav_logo_url: string;
   logo_dark_url: string;
+  login_image_url: string;
   favicon_url: string;
   primary_color: string;
   login_title: string;
@@ -40,6 +42,15 @@ type ServerBranding = {
 
 const STORAGE_KEY = 'white-label-branding';
 const originalFavicons = new Map<HTMLLinkElement, string>();
+const brandedThemeVariables = [
+  '--brand-primary',
+  '--bg-action',
+  '--bg-action-emphasis',
+  '--bg-action-faded',
+  '--border-action',
+  '--fg-action',
+  '--fg-action-emphasis',
+] as const;
 
 export const brandingDefaults: BrandingConfig = {
   companyName: 'S-Metric',
@@ -48,10 +59,11 @@ export const brandingDefaults: BrandingConfig = {
   copyrightName: 'S-Metric',
   supportEmail: '',
   supportUrl: '',
-  documentationUrl: 'https://docs.defguard.net/',
+  documentationUrl: '',
   logoUrl: '',
   navLogoUrl: '',
   logoDarkUrl: '',
+  loginImageUrl: '',
   faviconUrl: '',
   primaryColor: '',
   loginTitle: '',
@@ -92,6 +104,7 @@ const fromServerBranding = (server: ServerBranding): BrandingConfig => ({
   logoUrl: server.logo_url,
   navLogoUrl: server.nav_logo_url,
   logoDarkUrl: server.logo_dark_url,
+  loginImageUrl: server.login_image_url,
   faviconUrl: server.favicon_url,
   primaryColor: server.primary_color,
   loginTitle: server.login_title,
@@ -112,6 +125,7 @@ export const toServerBranding = (config: BrandingConfig): ServerBranding => ({
   logo_url: config.logoUrl,
   nav_logo_url: config.navLogoUrl,
   logo_dark_url: config.logoDarkUrl,
+  login_image_url: config.loginImageUrl,
   favicon_url: config.faviconUrl,
   primary_color: config.primaryColor,
   login_title: config.loginTitle,
@@ -146,10 +160,15 @@ export const applyBrandingToDocument = () => {
     link.href = branding.faviconUrl || originalFavicons.get(link) || link.href;
   });
 
+  const rootStyle = document.documentElement.style;
   if (branding.primaryColor) {
-    document.documentElement.style.setProperty('--brand-primary', branding.primaryColor);
+    for (const variable of brandedThemeVariables) {
+      rootStyle.setProperty(variable, branding.primaryColor);
+    }
   } else {
-    document.documentElement.style.removeProperty('--brand-primary');
+    for (const variable of brandedThemeVariables) {
+      rootStyle.removeProperty(variable);
+    }
   }
 };
 

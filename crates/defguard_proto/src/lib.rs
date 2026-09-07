@@ -151,6 +151,18 @@ impl From<MfaMethod> for VpnClientMfaMethod {
     }
 }
 
+impl From<VpnClientMfaMethod> for MfaMethod {
+    fn from(val: VpnClientMfaMethod) -> Self {
+        match val {
+            VpnClientMfaMethod::Totp => Self::Totp,
+            VpnClientMfaMethod::Email => Self::Email,
+            VpnClientMfaMethod::Oidc => Self::Oidc,
+            VpnClientMfaMethod::Biometric => Self::Biometric,
+            VpnClientMfaMethod::MobileApprove => Self::MobileApprove,
+        }
+    }
+}
+
 impl From<Status> for CoreError {
     fn from(status: Status) -> Self {
         Self {
@@ -160,10 +172,42 @@ impl From<Status> for CoreError {
     }
 }
 
+impl CoreError {
+    /// An `invalid_argument` error carrying a caller-facing message.
+    pub fn invalid_argument(message: impl Into<String>) -> Self {
+        Self {
+            status_code: tonic::Code::InvalidArgument.into(),
+            message: message.into(),
+        }
+    }
+
+    /// An `internal` error carrying a caller-facing message.
+    pub fn internal(message: impl Into<String>) -> Self {
+        Self {
+            status_code: tonic::Code::Internal.into(),
+            message: message.into(),
+        }
+    }
+
+    /// A `not_found` error carrying a caller-facing message.
+    pub fn not_found(message: impl Into<String>) -> Self {
+        Self {
+            status_code: tonic::Code::NotFound.into(),
+            message: message.into(),
+        }
+    }
+
+    /// A `failed_precondition` error carrying a caller-facing message.
+    pub fn failed_precondition(message: impl Into<String>) -> Self {
+        Self {
+            status_code: tonic::Code::FailedPrecondition.into(),
+            message: message.into(),
+        }
+    }
+}
+
 impl From<DeviceConfig> for client_types::DeviceConfig {
     fn from(config: DeviceConfig) -> Self {
-        // DEPRECATED(1.5): superseeded by location_mfa_mode
-        let mfa_enabled = config.location_mfa_mode == LocationMfaMode::Internal;
         Self {
             network_id: config.network_id,
             network_name: config.network_name,
@@ -174,14 +218,14 @@ impl From<DeviceConfig> for client_types::DeviceConfig {
             allowed_ips: config.allowed_ips.as_csv(),
             dns: config.dns,
             keepalive_interval: config.keepalive_interval,
+            // DEPRECATED(1.5): superseeded by location_mfa_mode
             #[allow(deprecated)]
-            mfa_enabled,
-            location_mfa_mode: Some(
-                <LocationMfaMode as Into<client_types::LocationMfaMode>>::into(
-                    config.location_mfa_mode,
-                )
-                .into(),
-            ),
+            mfa_enabled: config.mfa_enabled,
+            // Absent when the location's flow configuration has no legacy equivalent. Legacy
+            // client gating for that case is tracked separately (#3042).
+            location_mfa_mode: config.location_mfa_mode.map(|mode| {
+                <LocationMfaMode as Into<client_types::LocationMfaMode>>::into(mode).into()
+            }),
             service_location_mode: Some(
                 <ServiceLocationMode as Into<client_types::ServiceLocationMode>>::into(
                     config.service_location_mode,

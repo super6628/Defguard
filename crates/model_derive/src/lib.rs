@@ -9,6 +9,8 @@ use syn::{
 enum ModelType {
     Enum,
     Ip,
+    Json,
+    List,
     Option,
     OptionRef,
     Ref,
@@ -30,6 +32,10 @@ fn model_attr(field: &Field) -> syn::Result<Option<ModelType>> {
                     ModelType::Enum
                 } else if meta.path.is_ident("ip") {
                     ModelType::Ip
+                } else if meta.path.is_ident("json") {
+                    ModelType::Json
+                } else if meta.path.is_ident("list") {
+                    ModelType::List
                 } else if meta.path.is_ident("option") {
                     ModelType::Option
                 } else if meta.path.is_ident("option_ref") {
@@ -178,7 +184,9 @@ pub fn derive(input: TokenStream) -> TokenStream {
                 ModelType::Secret => cs_aliased_fields.push_str("?: SecretString\""),
                 ModelType::Ip => cs_aliased_fields.push_str(": IpAddr\""),
                 ModelType::Option | ModelType::OptionRef => cs_aliased_fields.push_str("?: _\""),
-                ModelType::Enum | ModelType::Ref => cs_aliased_fields.push_str(": _\""),
+                ModelType::Enum | ModelType::Ref | ModelType::Json | ModelType::List => {
+                    cs_aliased_fields.push_str(": _\"")
+                }
             }
         }
         cs_values.push('$');
@@ -211,6 +219,10 @@ pub fn derive(input: TokenStream) -> TokenStream {
             Some(ModelType::Ip) => {
                 // FIXME: hard-coded struct name
                 quote! { &self.#name as &IpAddr }
+            }
+            Some(ModelType::Json) | Some(ModelType::List) => {
+                let ty = &field.ty;
+                quote! { &self.#name as &#ty }
             }
             Some(ModelType::Ref) => quote! { &self.#name },
             None => quote! { self.#name },

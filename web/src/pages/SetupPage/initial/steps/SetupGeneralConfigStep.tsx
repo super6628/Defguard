@@ -4,6 +4,7 @@ import z from 'zod';
 import { useShallow } from 'zustand/react/shallow';
 import { m } from '../../../../paraglide/messages';
 import api from '../../../../shared/api/api';
+import { branding } from '../../../../shared/branding/branding';
 import { Controls } from '../../../../shared/components/Controls/Controls';
 import { WizardCard } from '../../../../shared/components/wizard/WizardCard/WizardCard';
 import { Button } from '../../../../shared/defguard-ui/components/Button/Button';
@@ -116,7 +117,7 @@ export const SetupGeneralConfigStep = () => {
               <field.FormInput
                 required
                 label={m.initial_setup_general_config_label_auth_period()}
-                helper={m.initial_setup_general_config_helper_auth_period()}
+                helper={`This setting defines the ${branding.productName} session timeout, determining how long a user stays logged in before their session expires.`}
                 type="number"
               />
             )}

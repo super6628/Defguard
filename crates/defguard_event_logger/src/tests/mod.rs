@@ -8,10 +8,13 @@ use defguard_common::db::{
         WebAuthn, WireguardNetwork,
         gateway::Gateway,
         group::Group,
+        mfa_flow::{LocationMfaFlowAssignmentSnapshot, MfaFlow, MfaFlowSnapshot, MfaFlowStep},
         oauth2client::OAuth2Client,
         proxy::Proxy,
         settings::set_settings,
-        wireguard::{LocationMfaMode, ServiceLocationMode},
+        vpn_client_mfa_session::{MfaAttribution, Step, StepsSnapshot},
+        vpn_client_session::VpnClientMfaMethod,
+        wireguard::ServiceLocationMode,
     },
 };
 use defguard_core::{
@@ -69,7 +72,7 @@ fn sample_location() -> WireguardNetwork<Id> {
         false,
         false,
         false,
-        LocationMfaMode::Internal,
+        true, // mfa_enabled
         ServiceLocationMode::Disabled,
     )
     .set_address([IpNetwork::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 24).unwrap()])
@@ -200,6 +203,40 @@ fn test_maps_replaced_bidi_events_from_non_mfa_sessions_to_standard_superseded_l
 
     assert_eq!(result.event, EventType::VpnClientSessionSuperseded);
     assert_eq!(result.module, ActivityLogModule::Vpn);
+}
+
+/// A superseded in-progress MFA login is not a superseded VPN session: nothing was authorized,
+/// so the entry must not claim a session existed or that an authorization replaced it.
+#[test]
+fn test_maps_superseded_mfa_login_to_its_own_event_and_description() {
+    let event = BidiStreamEvent {
+        context: sample_bidi_context(),
+        event: BidiStreamEventType::DesktopClientMfa(Box::new(
+            DesktopClientMfaEvent::MfaLoginSuperseded {
+                location: sample_location(),
+                device: sample_device(),
+            },
+        )),
+    };
+
+    let result = map_to_activity_log_event(EventLoggerMessage::from_bidi_event(event));
+
+    assert_eq!(result.event, EventType::VpnClientMfaLoginSuperseded);
+    assert_eq!(result.module, ActivityLogModule::Vpn);
+
+    let description = result.description.expect("expected a description");
+    assert!(
+        description.contains("MFA login"),
+        "description should name the login, got: {description}"
+    );
+    assert!(
+        !description.contains("VPN session"),
+        "description must not claim a VPN session was superseded, got: {description}"
+    );
+    assert!(
+        !description.contains("authorization"),
+        "description must not claim an authorization occurred, got: {description}"
+    );
 }
 
 // Helper struct for testing mapping of all existing events
@@ -420,6 +457,43 @@ fn api_event_cases() -> Vec<EventTestCase> {
         },
         os_rules: Vec::new(),
         location_ids: Vec::new(),
+    };
+
+    let mfa_flow_snapshot = MfaFlowSnapshot {
+        flow: MfaFlow {
+            id: 1,
+            title: "Strong MFA".into(),
+            created_at: Utc::now().naive_utc(),
+            updated_at: Utc::now().naive_utc(),
+        },
+        steps: vec![MfaFlowStep {
+            id: 1,
+            flow_id: 1,
+            position: 0,
+            methods: vec![VpnClientMfaMethod::Totp],
+        }],
+    };
+    let mfa_flow_snapshot2 = MfaFlowSnapshot {
+        flow: MfaFlow {
+            id: 1,
+            title: "Stronger MFA".into(),
+            created_at: Utc::now().naive_utc(),
+            updated_at: Utc::now().naive_utc(),
+        },
+        steps: vec![
+            MfaFlowStep {
+                id: 1,
+                flow_id: 1,
+                position: 0,
+                methods: vec![VpnClientMfaMethod::Totp],
+            },
+            MfaFlowStep {
+                id: 2,
+                flow_id: 1,
+                position: 1,
+                methods: vec![VpnClientMfaMethod::Email],
+            },
+        ],
     };
 
     let cases = vec![
@@ -1136,6 +1210,58 @@ fn api_event_cases() -> Vec<EventTestCase> {
             module: ActivityLogModule::Posture,
             description_contains: Some("Assigned"),
         },
+        EventTestCase {
+            name: "MfaFlowCreated",
+            message: api_message(ApiEventType::MfaFlowCreated {
+                snapshot: mfa_flow_snapshot.clone(),
+            }),
+            event_type: EventType::MfaFlowCreated,
+            module: ActivityLogModule::Defguard,
+            description_contains: Some("Created MFA flow"),
+        },
+        EventTestCase {
+            name: "MfaFlowUpdated",
+            message: api_message(ApiEventType::MfaFlowUpdated {
+                before: mfa_flow_snapshot.clone(),
+                after: mfa_flow_snapshot2.clone(),
+            }),
+            event_type: EventType::MfaFlowUpdated,
+            module: ActivityLogModule::Defguard,
+            description_contains: Some("Updated MFA flow"),
+        },
+        EventTestCase {
+            name: "MfaFlowDeleted",
+            message: api_message(ApiEventType::MfaFlowDeleted {
+                snapshot: mfa_flow_snapshot.clone(),
+            }),
+            event_type: EventType::MfaFlowDeleted,
+            module: ActivityLogModule::Defguard,
+            description_contains: Some("Deleted MFA flow"),
+        },
+        EventTestCase {
+            name: "LocationMfaFlowsAssigned",
+            message: api_message(ApiEventType::LocationMfaFlowsAssigned {
+                location_id: location.id,
+                location_name: location.name.clone(),
+                assignments: vec![
+                    LocationMfaFlowAssignmentSnapshot {
+                        flow_id: 1,
+                        position: 0,
+                        is_default: false,
+                        group_ids: vec![7],
+                    },
+                    LocationMfaFlowAssignmentSnapshot {
+                        flow_id: 2,
+                        position: 1,
+                        is_default: true,
+                        group_ids: vec![],
+                    },
+                ],
+            }),
+            event_type: EventType::LocationMfaFlowsAssigned,
+            module: ActivityLogModule::Defguard,
+            description_contains: Some("MFA flow"),
+        },
     ];
 
     assert_eq!(
@@ -1245,7 +1371,16 @@ fn bidi_event_cases() -> Vec<EventTestCase> {
                 BidiStreamEventType::DesktopClientMfa(Box::new(DesktopClientMfaEvent::Success {
                     location: location.clone(),
                     device: device.clone(),
-                    method: defguard_core::events::ClientMFAMethod::MobileApprove,
+                    attribution: MfaAttribution {
+                        snapshot: StepsSnapshot {
+                            flow_id: 1,
+                            steps: vec![Step {
+                                methods: vec![VpnClientMfaMethod::MobileApprove],
+                                satisfied: Some(VpnClientMfaMethod::MobileApprove),
+                            }],
+                        },
+                        flow_name: Some("flow".to_owned()),
+                    },
                     mobile_auth_device_name: Some("pixel-7".to_owned()),
                 })),
                 Some(location.clone()),
@@ -1299,6 +1434,21 @@ fn bidi_event_cases() -> Vec<EventTestCase> {
                 Some(location.clone()),
             ),
             event_type: EventType::VpnClientMfaSessionSuperseded,
+            module: ActivityLogModule::Vpn,
+            description_contains: Some("superseded"),
+        },
+        EventTestCase {
+            name: "MfaLoginSuperseded",
+            message: bidi_msg(
+                BidiStreamEventType::DesktopClientMfa(Box::new(
+                    DesktopClientMfaEvent::MfaLoginSuperseded {
+                        location: location.clone(),
+                        device: device.clone(),
+                    },
+                )),
+                Some(location.clone()),
+            ),
+            event_type: EventType::VpnClientMfaLoginSuperseded,
             module: ActivityLogModule::Vpn,
             description_contains: Some("superseded"),
         },
