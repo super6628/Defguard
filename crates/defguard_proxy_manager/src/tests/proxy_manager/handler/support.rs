@@ -5,11 +5,13 @@ use std::{
     time::SystemTime,
 };
 
+use base64::{Engine, prelude::BASE64_STANDARD};
 use defguard_common::{
     db::{
         Id, NoId,
         models::{
             Device, DeviceType, User, WireguardNetwork,
+            biometric_auth::BiometricAuth,
             mfa_flow::{LocationMfaFlowAssignment, MfaFlow},
             polling_token::PollingToken,
             settings::{Settings, update_current_settings},
@@ -47,7 +49,9 @@ use defguard_proto::{
         core_request, core_response,
     },
 };
+use ed25519_dalek::{Signer, SigningKey};
 use ipnetwork::IpNetwork;
+use rand::rngs::OsRng;
 use sqlx::PgPool;
 use tokio::{sync::mpsc::UnboundedReceiver, time::timeout};
 use tonic::Code;
@@ -111,6 +115,12 @@ pub(crate) fn assert_error_response_details(response: &CoreResponse) -> (Code, &
             other.as_ref().map(discriminant)
         ),
     }
+}
+
+/// Return both the tonic status code and owned error message.
+pub(crate) fn assert_error_response_with_message(response: &CoreResponse) -> (Code, String) {
+    let (code, message) = assert_error_response_details(response);
+    (code, message.to_owned())
 }
 
 /// Install a Business-tier license into the global cache for the duration of a
@@ -601,6 +611,47 @@ pub(crate) fn totp_code_from_base32_secret(base32_secret: &str) -> String {
 /// Send `ClientMfaStart` and return `(response_id, start_token)`.
 ///
 /// Panics if the handler returns an error.
+/// Send legacy ClientMfaStart and return request id, token and optional challenge.
+pub(crate) async fn send_mfa_start_with_challenge(
+    context: &mut HandlerTestContext,
+    location_id: Id,
+    pubkey: &str,
+    method: MfaMethod,
+) -> (u64, String, Option<String>) {
+    static MFA_CHALLENGE_CTR: AtomicU64 = AtomicU64::new(4000);
+    let id = MFA_CHALLENGE_CTR.fetch_add(1, Ordering::Relaxed);
+
+    context.mock_proxy().send_request(CoreRequest {
+        id,
+        device_info: Some(make_device_info()),
+        payload: Some(core_request::Payload::ClientMfaStart(
+            ClientMfaStartRequest {
+                location_id,
+                pubkey: pubkey.to_owned(),
+                #[allow(deprecated)]
+                method: method as i32,
+                posture_data: None,
+            },
+        )),
+    });
+
+    let response = context.mock_proxy_mut().recv_outbound().await;
+
+    match &response.payload {
+        Some(core_response::Payload::ClientMfaStart(start)) => {
+            (id, start.token.clone(), start.challenge.clone())
+        }
+        Some(core_response::Payload::CoreError(error)) => panic!(
+            "send_mfa_start_with_challenge: CoreError status={} msg={}",
+            error.status_code, error.message
+        ),
+        other => panic!(
+            "send_mfa_start_with_challenge: expected ClientMfaStart response, got: {:?}",
+            other.as_ref().map(discriminant)
+        ),
+    }
+}
+
 pub(crate) async fn send_mfa_start(
     context: &mut HandlerTestContext,
     location_id: Id,
@@ -640,6 +691,70 @@ pub(crate) async fn send_mfa_start(
 ///
 /// Requires `device_info` because the handler calls `parse_client_ip_agent`.
 /// Panics if the handler returns an error.
+/// Register an ed25519 biometric key for a device and return its signing key.
+pub(crate) async fn register_biometric_key(pool: &PgPool, device_id: Id) -> SigningKey {
+    let mut csprng = OsRng;
+    let signing_key = SigningKey::generate(&mut csprng);
+
+    let pub_key = BASE64_STANDARD.encode(signing_key.verifying_key().as_bytes());
+
+    BiometricAuth::new(device_id, pub_key)
+        .save(pool)
+        .await
+        .expect("failed to save biometric auth key");
+
+    signing_key
+}
+
+/// Return the base64 public key associated with the test signing key.
+pub(crate) fn biometric_pub_key(signing_key: &SigningKey) -> String {
+    BASE64_STANDARD.encode(signing_key.verifying_key().as_bytes())
+}
+
+/// Sign the MFA challenge exactly as the desktop client does.
+pub(crate) fn sign_challenge(signing_key: &SigningKey, challenge: &str) -> String {
+    BASE64_STANDARD.encode(signing_key.sign(challenge.as_bytes()).to_bytes())
+}
+
+/// Send ClientMfaFinish with an optional auth public key.
+pub(crate) async fn send_mfa_finish_signed(
+    context: &mut HandlerTestContext,
+    token: &str,
+    code: Option<&str>,
+    auth_pub_key: Option<&str>,
+) -> (CoreResponse, String) {
+    static MFA_SIGNED_CTR: AtomicU64 = AtomicU64::new(5000);
+    let id = MFA_SIGNED_CTR.fetch_add(1, Ordering::Relaxed);
+
+    context.mock_proxy().send_request(CoreRequest {
+        id,
+        device_info: Some(make_device_info()),
+        payload: Some(core_request::Payload::ClientMfaFinish(
+            ClientMfaFinishRequest {
+                token: token.to_owned(),
+                code: code.map(str::to_owned),
+                auth_pub_key: auth_pub_key.map(str::to_owned),
+            },
+        )),
+    });
+
+    let response = context.mock_proxy_mut().recv_outbound().await;
+
+    let psk = match &response.payload {
+        Some(core_response::Payload::ClientMfaFinish(finish)) => finish.preshared_key.clone(),
+        Some(core_response::Payload::CoreError(error)) => panic!(
+            "send_mfa_finish_signed: CoreError status={} msg={}",
+            error.status_code, error.message
+        ),
+        other => panic!(
+            "send_mfa_finish_signed: expected ClientMfaFinish response, got: {:?}",
+            other.as_ref().map(discriminant)
+        ),
+    };
+
+    (response, psk)
+}
+
 pub(crate) async fn send_mfa_finish(
     context: &mut HandlerTestContext,
     token: &str,

@@ -236,7 +236,10 @@ pub async fn mark_failed(
     let retry_seconds = INITIAL_RETRY_SECONDS
         .saturating_mul(1_i64 << exponent)
         .min(MAX_RETRY_SECONDS);
-    let error = error.chars().take(MAX_DELIVERY_ERROR_CHARS).collect::<String>();
+    let error = error
+        .chars()
+        .take(MAX_DELIVERY_ERROR_CHARS)
+        .collect::<String>();
     let result = sqlx::query(
         "UPDATE smetric_security_event_outbox \
          SET next_attempt_at = NOW() + ($2 * INTERVAL '1 second'), last_error = $3 \
@@ -257,7 +260,10 @@ pub async fn mark_dead_lettered(
     attempts: i64,
     error: &str,
 ) -> Result<bool, sqlx::Error> {
-    let error = error.chars().take(MAX_DELIVERY_ERROR_CHARS).collect::<String>();
+    let error = error
+        .chars()
+        .take(MAX_DELIVERY_ERROR_CHARS)
+        .collect::<String>();
     let result = sqlx::query(
         "UPDATE smetric_security_event_outbox \
          SET dead_lettered_at = COALESCE(dead_lettered_at, NOW()), last_error = $2 \
@@ -289,10 +295,7 @@ pub async fn requeue_dead_lettered(pool: &PgPool, event_id: Uuid) -> Result<bool
 /// Requeue at most `limit` dead-lettered events, oldest first. Row locking keeps concurrent recovery
 /// operations from selecting the same events, while resetting attempts gives corrected credentials
 /// or endpoint configuration a fresh delivery window.
-pub async fn requeue_dead_lettered_batch(
-    pool: &PgPool,
-    limit: i64,
-) -> Result<u64, sqlx::Error> {
+pub async fn requeue_dead_lettered_batch(pool: &PgPool, limit: i64) -> Result<u64, sqlx::Error> {
     let limit = limit.clamp(1, 10_000);
     let result = sqlx::query(
         "WITH candidates AS (\

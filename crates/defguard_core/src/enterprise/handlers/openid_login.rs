@@ -131,9 +131,7 @@ struct GoogleIdTokenClaims {
 
 fn microsoft_tenant_from_base_url(base_url: &str) -> Result<String, WebError> {
     let url = Url::parse(base_url).map_err(|err| {
-        WebError::Authorization(format!(
-            "Invalid Microsoft OpenID provider URL: {err}"
-        ))
+        WebError::Authorization(format!("Invalid Microsoft OpenID provider URL: {err}"))
     })?;
     let tenant = url
         .path_segments()
@@ -162,7 +160,9 @@ where
     T: serde::de::DeserializeOwned,
 {
     let payload = id_token.split('.').nth(1).ok_or_else(|| {
-        WebError::Authorization(format!("{provider_name} ID token has an invalid JWT format"))
+        WebError::Authorization(format!(
+            "{provider_name} ID token has an invalid JWT format"
+        ))
     })?;
     let decoded = URL_SAFE_NO_PAD
         .decode(payload)

@@ -427,7 +427,9 @@ pub fn build_webapp(
             // white-label branding
             .route(
                 "/branding",
-                get(get_branding).put(update_branding).delete(reset_branding),
+                get(get_branding)
+                    .put(update_branding)
+                    .delete(reset_branding),
             )
             // enterprise settings
             .route(

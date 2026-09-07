@@ -91,7 +91,9 @@ pub fn spawn_if_configured(
     shutdown: watch::Receiver<bool>,
 ) -> Result<Option<JoinHandle<()>>, SiemRuntimeConfigError> {
     let Some(config) = SiemRuntimeConfig::from_env()? else {
-        tracing::info!("S-Metric SIEM dispatcher disabled; DEFGUARD_SIEM_HTTP_URL is not configured");
+        tracing::info!(
+            "S-Metric SIEM dispatcher disabled; DEFGUARD_SIEM_HTTP_URL is not configured"
+        );
         return Ok(None);
     };
 

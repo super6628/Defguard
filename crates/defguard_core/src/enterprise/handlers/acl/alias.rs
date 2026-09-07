@@ -32,7 +32,9 @@ pub struct EditAclAlias {
 impl EditAclAlias {
     fn validate(&self) -> Result<(), WebError> {
         if self.name.trim().is_empty() {
-            return Err(WebError::BadRequest("Alias name cannot be empty".to_owned()));
+            return Err(WebError::BadRequest(
+                "Alias name cannot be empty".to_owned(),
+            ));
         }
         if self.addresses.trim().is_empty()
             && self.ports.trim().is_empty()

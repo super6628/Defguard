@@ -156,10 +156,7 @@ async fn test_acl_apply_endpoints_reject_empty_batches(
 }
 
 #[sqlx::test]
-async fn test_duplicate_rule_apply_rolls_back_batch(
-    _: PgPoolOptions,
-    options: PgConnectOptions,
-) {
+async fn test_duplicate_rule_apply_rolls_back_batch(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = setup_pool(options).await;
     let (mut client, _) = make_test_client(pool).await;
     authenticate_admin(&mut client).await;

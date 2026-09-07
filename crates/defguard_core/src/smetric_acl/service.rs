@@ -4,12 +4,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{PgPool, Postgres, Transaction};
 
+use super::security_event::{NewSecurityEvent, SecurityEventCategory, enqueue_in_transaction};
 use super::{
     Action, DefaultAction, Destination, Policy, PortRange, Protocol, Rule, Subject,
     ValidationError, compile, validate,
-};
-use super::security_event::{
-    NewSecurityEvent, SecurityEventCategory, enqueue_in_transaction,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -99,12 +97,11 @@ pub async fn create_policy(
 
 pub async fn delete_policy(pool: &PgPool, policy_id: i64) -> Result<(), ServiceError> {
     let mut tx = pool.begin().await?;
-    let deleted = sqlx::query_scalar::<_, i64>(
-        "DELETE FROM smetric_acl_policy WHERE id = $1 RETURNING id",
-    )
-    .bind(policy_id)
-    .fetch_optional(&mut *tx)
-    .await?;
+    let deleted =
+        sqlx::query_scalar::<_, i64>("DELETE FROM smetric_acl_policy WHERE id = $1 RETURNING id")
+            .bind(policy_id)
+            .fetch_optional(&mut *tx)
+            .await?;
     if deleted.is_none() {
         return Err(ServiceError::PolicyNotFound(policy_id));
     }
@@ -166,11 +163,7 @@ pub async fn update_rule(
     rule_from_row(row)
 }
 
-pub async fn delete_rule(
-    pool: &PgPool,
-    policy_id: i64,
-    rule_id: i64,
-) -> Result<(), ServiceError> {
+pub async fn delete_rule(pool: &PgPool, policy_id: i64, rule_id: i64) -> Result<(), ServiceError> {
     let mut tx = pool.begin().await?;
     ensure_policy(&mut tx, policy_id).await?;
     let deleted = sqlx::query_scalar::<_, i64>(
@@ -321,7 +314,9 @@ pub async fn load_latest_published_policy(
     snapshot
         .map(serde_json::from_value)
         .transpose()
-        .map_err(|error| ServiceError::InvalidStoredValue(format!("invalid published policy snapshot: {error}")))
+        .map_err(|error| {
+            ServiceError::InvalidStoredValue(format!("invalid published policy snapshot: {error}"))
+        })
 }
 
 pub async fn validate_policy(pool: &PgPool, policy_id: i64) -> Result<Policy, ServiceError> {
@@ -336,8 +331,9 @@ pub async fn publish_policy(
 ) -> Result<PublishedPolicy, ServiceError> {
     let policy = load_policy(pool, policy_id).await?;
     let compiled = compile(policy.clone())?;
-    let snapshot = serde_json::to_value(&policy)
-        .map_err(|error| ServiceError::InvalidStoredValue(format!("failed to serialize policy snapshot: {error}")))?;
+    let snapshot = serde_json::to_value(&policy).map_err(|error| {
+        ServiceError::InvalidStoredValue(format!("failed to serialize policy snapshot: {error}"))
+    })?;
     let mut tx = pool.begin().await?;
     sqlx::query("INSERT INTO smetric_acl_revision (policy_id, revision, checksum, policy_snapshot) VALUES ($1,$2,$3,$4) ON CONFLICT (policy_id, revision) DO UPDATE SET checksum=EXCLUDED.checksum, policy_snapshot=EXCLUDED.policy_snapshot, compiled_at=NOW()")
         .bind(policy_id)
@@ -462,9 +458,9 @@ fn encode_destination(value: &Destination) -> (&'static str, Option<&str>) {
 
 fn decode_subject(kind: &str, value: Option<String>) -> Result<Subject, ServiceError> {
     let required = || {
-        value
-            .clone()
-            .ok_or_else(|| ServiceError::InvalidStoredValue(format!("missing source value for {kind}")))
+        value.clone().ok_or_else(|| {
+            ServiceError::InvalidStoredValue(format!("missing source value for {kind}"))
+        })
     };
     match kind {
         "any" => Ok(Subject::Any),
@@ -474,7 +470,9 @@ fn decode_subject(kind: &str, value: Option<String>) -> Result<Subject, ServiceE
         "device_group" => Ok(Subject::DeviceGroup(required()?)),
         "location" => Ok(Subject::Location(required()?)),
         "cidr" => Ok(Subject::Cidr(required()?)),
-        _ => Err(ServiceError::InvalidStoredValue(format!("source kind {kind}"))),
+        _ => Err(ServiceError::InvalidStoredValue(format!(
+            "source kind {kind}"
+        ))),
     }
 }
 
@@ -491,7 +489,9 @@ fn decode_destination(kind: &str, value: Option<String>) -> Result<Destination, 
         "ip_range" => Ok(Destination::IpRange(required()?)),
         "alias" => Ok(Destination::Alias(required()?)),
         "service" => Ok(Destination::Service(required()?)),
-        _ => Err(ServiceError::InvalidStoredValue(format!("destination kind {kind}"))),
+        _ => Err(ServiceError::InvalidStoredValue(format!(
+            "destination kind {kind}"
+        ))),
     }
 }
 

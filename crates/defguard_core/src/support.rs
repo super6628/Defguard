@@ -112,10 +112,7 @@ mod tests {
     use defguard_common::{
         config::{DefGuardConfig, SERVER_CONFIG},
         db::{
-            models::{
-                Settings, User, WireguardNetwork,
-                wireguard::{LocationMfaMode, ServiceLocationMode},
-            },
+            models::{Settings, User, WireguardNetwork, wireguard::ServiceLocationMode},
             setup_pool,
         },
         secret::SecretStringWrapper,
@@ -233,7 +230,7 @@ mod tests {
             false,
             false,
             false,
-            LocationMfaMode::Disabled,
+            false,
             ServiceLocationMode::Disabled,
         )
         .set_address([IpNetwork::new(IpAddr::V4(Ipv4Addr::new(10, 1, 1, 1)), 24).unwrap()])

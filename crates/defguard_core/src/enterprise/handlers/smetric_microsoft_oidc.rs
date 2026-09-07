@@ -35,10 +35,7 @@ use crate::{
     error::WebError,
     handlers::{
         ApiResponse, ApiResult, AuthResponse, ClientIpAddr, SESSION_COOKIE_NAME,
-        SIGN_IN_COOKIE_NAME,
-        auth::create_session,
-        cookie_domain,
-        user::check_username,
+        SIGN_IN_COOKIE_NAME, auth::create_session, cookie_domain, user::check_username,
     },
 };
 
@@ -122,7 +119,9 @@ fn username_handling_from_db(value: &str) -> OpenIdUsernameHandling {
 fn normalize_tenant(tenant: &str) -> Result<String, WebError> {
     let tenant = tenant.trim();
     if tenant.is_empty() {
-        return Err(WebError::BadRequest("Microsoft tenant ID is required".into()));
+        return Err(WebError::BadRequest(
+            "Microsoft tenant ID is required".into(),
+        ));
     }
     let lower = tenant.to_ascii_lowercase();
     if matches!(lower.as_str(), "common" | "organizations" | "consumers") {
@@ -170,7 +169,9 @@ fn normalize_domains(domains: &[String]) -> Result<Vec<String>, WebError> {
             || normalized.contains(':')
             || normalized.contains(' ')
         {
-            return Err(WebError::BadRequest(format!("Invalid allowed email domain: {domain}")));
+            return Err(WebError::BadRequest(format!(
+                "Invalid allowed email domain: {domain}"
+            )));
         }
         if !result.contains(&normalized) {
             result.push(normalized);
@@ -219,7 +220,9 @@ pub async fn add_openid_provider(
         return Err(WebError::BadRequest("Provider name is required".into()));
     }
     if data.client_id.trim().is_empty() || data.client_secret.trim().is_empty() {
-        return Err(WebError::BadRequest("Microsoft client ID and client secret are required".into()));
+        return Err(WebError::BadRequest(
+            "Microsoft client ID and client secret are required".into(),
+        ));
     }
 
     let tenant_id = normalize_tenant(&data.tenant_id)?;
@@ -242,7 +245,10 @@ pub async fn add_openid_provider(
     )
     .await?;
 
-    Ok(ApiResponse::json(provider_json(&provider), StatusCode::CREATED))
+    Ok(ApiResponse::json(
+        provider_json(&provider),
+        StatusCode::CREATED,
+    ))
 }
 
 pub async fn modify_openid_provider(
@@ -264,7 +270,9 @@ pub async fn modify_openid_provider(
         data.client_secret.trim().to_owned()
     };
     if data.client_id.trim().is_empty() || secret.is_empty() {
-        return Err(WebError::BadRequest("Microsoft client ID and client secret are required".into()));
+        return Err(WebError::BadRequest(
+            "Microsoft client ID and client secret are required".into(),
+        ));
     }
 
     let provider = SMetricOidcProvider::update(
@@ -359,16 +367,28 @@ fn http_client() -> Result<reqwest::Client, WebError> {
 async fn oidc_client(
     provider: &SMetricOidcProvider,
     redirect_url: Url,
-) -> Result<(
-    ClientId,
-    CoreClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointMaybeSet, EndpointMaybeSet>,
-), WebError> {
+) -> Result<
+    (
+        ClientId,
+        CoreClient<
+            EndpointSet,
+            EndpointNotSet,
+            EndpointNotSet,
+            EndpointNotSet,
+            EndpointMaybeSet,
+            EndpointMaybeSet,
+        >,
+    ),
+    WebError,
+> {
     let issuer = IssuerUrl::new(provider.issuer.clone())
         .map_err(|_| WebError::BadRequest("Invalid Microsoft issuer URL".into()))?;
     let client = http_client()?;
     let metadata = CoreProviderMetadata::discover_async(issuer, &client)
         .await
-        .map_err(|_| WebError::Authorization("Unable to discover Microsoft OpenID configuration".into()))?;
+        .map_err(|_| {
+            WebError::Authorization("Unable to discover Microsoft OpenID configuration".into())
+        })?;
     let client_id = ClientId::new(provider.client_id.clone());
     let oidc = CoreClient::from_provider_metadata(
         metadata,
@@ -403,10 +423,13 @@ async fn select_provider(
     } else {
         SMetricOidcProvider::default_enabled(pool).await?
     };
-    let provider = provider
-        .ok_or_else(|| WebError::ObjectNotFound("Microsoft OIDC provider is not configured".into()))?;
+    let provider = provider.ok_or_else(|| {
+        WebError::ObjectNotFound("Microsoft OIDC provider is not configured".into())
+    })?;
     if !provider.enabled {
-        return Err(WebError::Authorization("Selected Microsoft provider is disabled".into()));
+        return Err(WebError::Authorization(
+            "Selected Microsoft provider is disabled".into(),
+        ));
     }
     Ok(provider)
 }
@@ -418,7 +441,9 @@ pub async fn get_auth_info(
 ) -> Result<(PrivateCookieJar, ApiResponse), WebError> {
     let enabled = SMetricOidcProvider::enabled(&appstate.pool).await?;
     if enabled.is_empty() {
-        return Err(WebError::ObjectNotFound("Microsoft OIDC provider is not configured".into()));
+        return Err(WebError::ObjectNotFound(
+            "Microsoft OIDC provider is not configured".into(),
+        ));
     }
     let provider = select_provider(&appstate.pool, &query).await?;
     let settings = Settings::get_current_settings();
@@ -440,10 +465,26 @@ pub async fn get_auth_info(
         .cookie_insecure
         .map_or(settings.cookie_secure()?, |insecure| !insecure);
     private_cookies = private_cookies
-        .add(private_cookie(OIDC_STATE_COOKIE, state.secret().clone(), secure))
-        .add(private_cookie(OIDC_NONCE_COOKIE, nonce.secret().clone(), secure))
-        .add(private_cookie(OIDC_PKCE_COOKIE, verifier.secret().clone(), secure))
-        .add(private_cookie(OIDC_PROVIDER_COOKIE, provider.id.to_string(), secure));
+        .add(private_cookie(
+            OIDC_STATE_COOKIE,
+            state.secret().clone(),
+            secure,
+        ))
+        .add(private_cookie(
+            OIDC_NONCE_COOKIE,
+            nonce.secret().clone(),
+            secure,
+        ))
+        .add(private_cookie(
+            OIDC_PKCE_COOKIE,
+            verifier.secret().clone(),
+            secure,
+        ))
+        .add(private_cookie(
+            OIDC_PROVIDER_COOKIE,
+            provider.id.to_string(),
+            secure,
+        ));
 
     let providers: Vec<_> = enabled.into_iter().map(public_provider).collect();
     Ok((
@@ -494,7 +535,11 @@ fn validate_email_domain(provider: &SMetricOidcProvider, email: &str) -> Result<
     let domain = email
         .rsplit_once('@')
         .map(|(_, domain)| domain.to_ascii_lowercase())
-        .ok_or_else(|| WebError::Authorization("Microsoft identity did not contain a valid email address".into()))?;
+        .ok_or_else(|| {
+            WebError::Authorization(
+                "Microsoft identity did not contain a valid email address".into(),
+            )
+        })?;
     if provider
         .allowed_domains
         .iter()
@@ -513,11 +558,12 @@ fn microsoft_tid_from_validated_id_token(id_token: &str) -> Result<String, WebEr
         .split('.')
         .nth(1)
         .ok_or_else(|| WebError::Authorization("Microsoft ID token payload is malformed".into()))?;
-    let decoded = URL_SAFE_NO_PAD
-        .decode(payload)
-        .map_err(|_| WebError::Authorization("Microsoft ID token payload encoding is invalid".into()))?;
-    let claims: MicrosoftIdTokenPayload = serde_json::from_slice(&decoded)
-        .map_err(|_| WebError::Authorization("Microsoft ID token is missing the tenant claim".into()))?;
+    let decoded = URL_SAFE_NO_PAD.decode(payload).map_err(|_| {
+        WebError::Authorization("Microsoft ID token payload encoding is invalid".into())
+    })?;
+    let claims: MicrosoftIdTokenPayload = serde_json::from_slice(&decoded).map_err(|_| {
+        WebError::Authorization("Microsoft ID token is missing the tenant claim".into())
+    })?;
     normalize_tenant(&claims.tid)
         .map_err(|_| WebError::Authorization("Microsoft ID token tenant claim is invalid".into()))
 }
@@ -578,7 +624,9 @@ async fn resolve_user(
     let username = normalized_username(source, &provider.username_handling);
     check_username(&username)?;
     if User::find_by_username(pool, &username).await?.is_some() {
-        return Err(WebError::Authorization(format!("Username {username} already exists")));
+        return Err(WebError::Authorization(format!(
+            "Username {username} already exists"
+        )));
     }
 
     let mut user = User::new(
@@ -609,7 +657,9 @@ pub async fn auth_callback(
         .value()
         .to_owned();
     if payload.state.secret() != &expected_state {
-        return Err(WebError::Authorization("OIDC state validation failed".into()));
+        return Err(WebError::Authorization(
+            "OIDC state validation failed".into(),
+        ));
     }
     let nonce = private_cookies
         .get(OIDC_NONCE_COOKIE)
@@ -636,9 +686,13 @@ pub async fn auth_callback(
 
     let provider = SMetricOidcProvider::find_by_id(&appstate.pool, provider_id)
         .await?
-        .ok_or_else(|| WebError::Authorization("Selected Microsoft provider no longer exists".into()))?;
+        .ok_or_else(|| {
+            WebError::Authorization("Selected Microsoft provider no longer exists".into())
+        })?;
     if !provider.enabled {
-        return Err(WebError::Authorization("Selected Microsoft provider is disabled".into()));
+        return Err(WebError::Authorization(
+            "Selected Microsoft provider is disabled".into(),
+        ));
     }
 
     let settings = Settings::get_current_settings();
@@ -650,7 +704,9 @@ pub async fn auth_callback(
         .set_pkce_verifier(PkceCodeVerifier::new(pkce))
         .request_async(&http)
         .await
-        .map_err(|_| WebError::Authorization("Failed to exchange Microsoft authorization code".into()))?;
+        .map_err(|_| {
+            WebError::Authorization("Failed to exchange Microsoft authorization code".into())
+        })?;
     let id_token = token
         .extra_fields()
         .id_token()
@@ -751,6 +807,12 @@ pub async fn auth_callback(
     Ok((
         cookies,
         private_cookies,
-        ApiResponse::json(AuthResponse { user: user_info, url }, StatusCode::OK),
+        ApiResponse::json(
+            AuthResponse {
+                user: user_info,
+                url,
+            },
+            StatusCode::OK,
+        ),
     ))
 }

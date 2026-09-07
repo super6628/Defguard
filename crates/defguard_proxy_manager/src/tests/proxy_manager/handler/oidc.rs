@@ -8,7 +8,6 @@ use defguard_common::db::{
         vpn_client_mfa_session::VpnClientMfaSession,
     },
 };
-};
 use defguard_core::{
     db::models::enrollment::Token,
     enterprise::{

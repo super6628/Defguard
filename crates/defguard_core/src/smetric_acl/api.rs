@@ -137,10 +137,7 @@ async fn deploy_effective(
     Ok(())
 }
 
-async fn has_published_snapshot(
-    state: &AppState,
-    policy_id: i64,
-) -> Result<bool, Response> {
+async fn has_published_snapshot(state: &AppState, policy_id: i64) -> Result<bool, Response> {
     sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS( \
             SELECT 1 FROM smetric_acl_revision \
@@ -239,7 +236,10 @@ pub async fn set_policy_enabled(
     for effective in replacements {
         deploy_effective(&state, effective).await?;
     }
-    notify_config_changed(format!("smetric_acl:policy:{policy_id}:enabled:{}", input.enabled));
+    notify_config_changed(format!(
+        "smetric_acl:policy:{policy_id}:enabled:{}",
+        input.enabled
+    ));
 
     Ok(Json(
         load_policy(&state.pool, policy_id)
@@ -464,7 +464,9 @@ pub async fn update_rule_handler(
     Path((policy_id, rule_id)): Path<(i64, i64)>,
     Json(input): Json<UpdateRule>,
 ) -> Result<Json<Rule>, ApiError> {
-    Ok(Json(update_rule(&state.pool, policy_id, rule_id, input).await?))
+    Ok(Json(
+        update_rule(&state.pool, policy_id, rule_id, input).await?,
+    ))
 }
 
 pub async fn delete_rule_handler(

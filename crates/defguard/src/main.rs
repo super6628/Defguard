@@ -363,11 +363,10 @@ async fn main() -> Result<(), anyhow::Error> {
     debug!("Gateway connection states reset");
 
     let (siem_shutdown_tx, siem_shutdown_rx) = tokio::sync::watch::channel(false);
-    let siem_dispatcher =
-        defguard_core::smetric_acl::security_event::runtime::spawn_if_configured(
-            pool.clone(),
-            siem_shutdown_rx,
-        )?;
+    let siem_dispatcher = defguard_core::smetric_acl::security_event::runtime::spawn_if_configured(
+        pool.clone(),
+        siem_shutdown_rx,
+    )?;
 
     // run services
     let result = tokio::select! {

@@ -318,8 +318,7 @@ impl ClientMfaServer {
         // Resolve the MFA flow that applies to this user at this location. The legacy adapter
         // drives only the first step, so license-filter its methods and validate the client's
         // selected method against them.
-        let mut conn = self.acquire_conn().await?;
-        let Some((flow, steps)) = MfaFlow::resolve_for_user(&mut conn, location.id, user.id)
+        let Some((flow, steps)) = MfaFlow::resolve_for_user(&self.pool, location.id, user.id)
             .await
             .map_err(|err| {
                 error!("Failed to resolve MFA flow: {err}");
@@ -474,6 +473,8 @@ impl ClientMfaServer {
         // first attempt (selected method and challenge) is written by the same statement that
         // mints the row, so a concurrent start cannot leave this client's token pointing at an
         // attempt another caller selected.
+        let mut conn = self.acquire_conn().await?;
+
         let (_session, outcome) = VpnClientMfaSession::<Id>::start(
             &mut conn,
             location.id,
@@ -1520,6 +1521,7 @@ mod tests {
         models::{
             Device, DeviceType, User, WireguardNetwork,
             device::WireguardNetworkDevice,
+            mfa_flow::{LocationMfaFlowAssignment, MfaFlow},
             polling_token::PollingToken,
             settings::initialize_current_settings,
             user::{TOTP_CODE_DIGITS, TOTP_CODE_VALIDITY_PERIOD},
@@ -2819,7 +2821,6 @@ mod tests {
                     #[allow(deprecated)]
                     method: MfaMethod::Totp as i32,
                     posture_data: None,
-                    selected_methods: Vec::new(),
                 },
                 device_info(),
             )
@@ -2932,7 +2933,6 @@ mod tests {
                     #[allow(deprecated)]
                     method: MfaMethod::Totp as i32,
                     posture_data: None,
-                    selected_methods: Vec::new(),
                 },
                 device_info(),
             )
@@ -3061,7 +3061,6 @@ mod tests {
             #[allow(deprecated)]
             method: MfaMethod::Totp as i32,
             posture_data: None,
-            selected_methods: Vec::new(),
         };
 
         let first = server
@@ -3150,7 +3149,6 @@ mod tests {
             #[allow(deprecated)]
             method: MfaMethod::Totp as i32,
             posture_data: None,
-            selected_methods: Vec::new(),
         };
 
         let established = server
@@ -3217,7 +3215,6 @@ mod tests {
                     #[allow(deprecated)]
                     method: MfaMethod::Totp as i32,
                     posture_data: None,
-                    selected_methods: Vec::new(),
                 },
                 device_info(),
             )
@@ -3285,7 +3282,6 @@ mod tests {
                     #[allow(deprecated)]
                     method: MfaMethod::Totp as i32,
                     posture_data: None,
-                    selected_methods: Vec::new(),
                 },
                 device_info(),
             )

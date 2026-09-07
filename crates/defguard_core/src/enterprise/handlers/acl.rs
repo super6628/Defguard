@@ -160,12 +160,20 @@ impl EditAclRule {
                 "Cannot allow and deny all network devices at the same time".to_owned(),
             ));
         }
-        if self.allowed_users.iter().any(|id| self.denied_users.contains(id)) {
+        if self
+            .allowed_users
+            .iter()
+            .any(|id| self.denied_users.contains(id))
+        {
             return Err(WebError::BadRequest(
                 "A user cannot be both allowed and denied in the same rule".to_owned(),
             ));
         }
-        if self.allowed_groups.iter().any(|id| self.denied_groups.contains(id)) {
+        if self
+            .allowed_groups
+            .iter()
+            .any(|id| self.denied_groups.contains(id))
+        {
             return Err(WebError::BadRequest(
                 "A group cannot be both allowed and denied in the same rule".to_owned(),
             ));
