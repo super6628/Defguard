@@ -12,6 +12,8 @@ import { Page } from '../../shared/components/Page/Page';
 import { useAuth } from '../../shared/hooks/useAuth';
 import { displayDate } from '../../shared/utils/displayDate';
 import { SiemInvestigationNotes } from './SiemInvestigationNotes';
+import { SiemResultsSummary } from './SiemResultsSummary';
+import { SiemStatePanel } from './SiemStatePanel';
 import {
   parseSiemAlertState,
   toggleSiemAlertState,
@@ -498,6 +500,15 @@ export const SiemPage = () => {
               </label>
             </div>
 
+            {!isLoading && !isError && (
+              <SiemResultsSummary
+                visibleCount={visibleEvents.length}
+                loadedCount={events.length}
+                serverTotal={totalItems}
+                hasPageFilters={hasPageFilters}
+              />
+            )}
+
             {hasPageFilters && (
               <div className="siem-filter-note">
                 Detection and acknowledgement filters apply to the {events.length} events loaded on
@@ -505,14 +516,26 @@ export const SiemPage = () => {
               </div>
             )}
 
-            {isLoading && <div className="siem-state">Loading security events…</div>}
+            {isLoading && <SiemStatePanel title="Loading security events…" />}
             {isError && (
-              <div className="siem-state">
-                Activity Log data could not be loaded. Use Refresh to retry.
-              </div>
+              <SiemStatePanel
+                title="Activity Log data could not be loaded"
+                description="The SIEM queue could not retrieve Activity Log data. Retry the current filters."
+                actionLabel="Retry"
+                onAction={() => void refetch()}
+              />
             )}
             {!isLoading && !isError && visibleEvents.length === 0 && (
-              <div className="siem-state">No security events match the current filters.</div>
+              <SiemStatePanel
+                title={events.length === 0 ? 'No security events found' : 'No visible events on this page'}
+                description={
+                  events.length === 0
+                    ? 'No Activity Log events match the current server-side filters.'
+                    : 'The loaded page contains events, but the page-local detection or acknowledgement filters hide them.'
+                }
+                actionLabel={hasActiveFilters ? 'Reset filters' : undefined}
+                onAction={hasActiveFilters ? resetFilters : undefined}
+              />
             )}
 
             {!isLoading && !isError && visibleEvents.length > 0 && (
