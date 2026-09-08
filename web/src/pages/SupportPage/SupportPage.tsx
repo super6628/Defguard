@@ -56,7 +56,7 @@ const PageContent = () => {
   );
 
   const documentationUrl = brandConfig.documentationUrl ?? externalLink.defguard.docs;
-  const supportEmail = brandConfig.supportEmail ?? 'support@defguard.net';
+  const supportEmail = brandConfig.supportEmail;
   const bugReportUrl = brandConfig.bugReportUrl ?? externalLink.github.bugReport;
   const featureRequestUrl = brandConfig.featureRequestUrl ?? externalLink.github.featureRequest;
   const supportTicketUrl = brandConfig.supportTicketUrl
@@ -123,7 +123,7 @@ const PageContent = () => {
                         type: 'application/json',
                       });
                       const now = new Date().toISOString().replace(/[:.]/g, '-');
-                      downloadFile(blob, `defguard-support-data-${now}`, 'json');
+                      downloadFile(blob, `s-metric-secure-support-data-${now}`, 'json');
                     },
                   },
                 ],
@@ -147,7 +147,7 @@ const PageContent = () => {
           />
         </ButtonsGroup>
       </MarkedSection>
-      {(supportType === 'Basic' || supportType === 'Direct') && (
+      {(supportType === 'Basic' || supportType === 'Direct') && supportEmail && (
         <>
           <Divider spacing={ThemeSpacing.Xl2} />
           <MarkedSection icon="mail">
