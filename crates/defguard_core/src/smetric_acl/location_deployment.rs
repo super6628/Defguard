@@ -244,7 +244,8 @@ pub async fn mark_error(
         "UPDATE smetric_acl_location_deployment_state SET \
            last_error=$3, last_error_at=NOW(), updated_at=NOW() \
          WHERE location_id=$1 AND desired_generation=$2 \
-           AND applied_generation IS DISTINCT FROM $2",
+           AND applied_generation IS DISTINCT FROM $2 \
+           AND last_error IS DISTINCT FROM $3",
     )
     .bind(location_id)
     .bind(generation)
