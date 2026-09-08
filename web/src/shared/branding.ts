@@ -16,6 +16,7 @@ export type BrandConfig = {
   bugReportUrl?: string;
   featureRequestUrl?: string;
   supportTicketUrl?: string;
+  communityUrl?: string;
   scheduleCallUrl?: string;
 };
 
@@ -50,6 +51,7 @@ export const brandConfig: BrandConfig = {
   bugReportUrl: readEnv('VITE_BRAND_BUG_REPORT_URL'),
   featureRequestUrl: readEnv('VITE_BRAND_FEATURE_REQUEST_URL'),
   supportTicketUrl: readEnv('VITE_BRAND_SUPPORT_TICKET_URL'),
+  communityUrl: readEnv('VITE_BRAND_COMMUNITY_URL'),
   scheduleCallUrl: readEnv('VITE_BRAND_SCHEDULE_CALL_URL'),
 };
 
