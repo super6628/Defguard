@@ -105,7 +105,7 @@ const PageContent = () => {
           <Button
             variant="secondary"
             text={m.support_page_bug_btn_report()}
-            iconLeft="github"
+            iconRight="open-in-new-window"
             onClick={() => window.open(bugReportUrl, '_blank', 'noopener,noreferrer')}
           />
           <ButtonMenu
@@ -143,7 +143,7 @@ const PageContent = () => {
           <Button
             variant="secondary"
             text={m.support_page_feature_btn()}
-            iconLeft="github"
+            iconRight="open-in-new-window"
             onClick={() => window.open(featureRequestUrl, '_blank', 'noopener,noreferrer')}
           />
         </ButtonsGroup>
