@@ -57,7 +57,7 @@ jobs:
       DATABASE_URL: postgresql://defguard:defguard@localhost:5432/defguard
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17
         env:
           POSTGRES_DB: defguard
           POSTGRES_USER: defguard
@@ -65,7 +65,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U defguard -d defguard"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -76,8 +76,15 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install protoc and PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler postgresql-client
+
+      - name: Enable required PostgreSQL extensions
+        env:
+          PGPASSWORD: defguard
+        run: |
+          psql -h localhost -U defguard -d defguard -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;'
+          psql -h localhost -U defguard -d defguard -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'pgcrypto';"
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
