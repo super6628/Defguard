@@ -11,6 +11,8 @@ use crate::{appstate::AppState, auth::AdminRole};
 
 use super::location_deployment::{get, mark_applied, mark_error};
 
+const MAX_DEPLOYMENT_ERROR_CHARS: usize = 4096;
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct DeploymentAcknowledgement {
     pub location_id: i64,
@@ -87,6 +89,13 @@ pub async fn acknowledge(
                 )
                     .into_response()
             })?;
+        if error.chars().count() > MAX_DEPLOYMENT_ERROR_CHARS {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "deployment acknowledgement error message is too long",
+            )
+                .into_response());
+        }
         mark_error(&state.pool, input.location_id, input.generation, error).await
     }
     .map_err(|error| {
