@@ -44,6 +44,8 @@ pub enum SiemRuntimeConfigError {
     UnsupportedEndpointScheme(String),
     #[error("DEFGUARD_SIEM_HTTP_URL must not contain embedded username or password credentials")]
     EmbeddedEndpointCredentials,
+    #[error("DEFGUARD_SIEM_BEARER_TOKEN requires an https DEFGUARD_SIEM_HTTP_URL")]
+    InsecureBearerEndpoint,
     #[error("invalid integer in {name}: {value}")]
     InvalidInteger { name: &'static str, value: String },
     #[error("failed to build S-Metric SIEM HTTP client: {0}")]
@@ -65,6 +67,10 @@ impl SiemRuntimeConfig {
         if !endpoint.username().is_empty() || endpoint.password().is_some() {
             return Err(SiemRuntimeConfigError::EmbeddedEndpointCredentials);
         }
+        let bearer_token = non_empty_env("DEFGUARD_SIEM_BEARER_TOKEN");
+        if bearer_token.is_some() && endpoint.scheme() != "https" {
+            return Err(SiemRuntimeConfigError::InsecureBearerEndpoint);
+        }
 
         let timeout_secs = parse_env_u64("DEFGUARD_SIEM_HTTP_TIMEOUT_SECS", DEFAULT_TIMEOUT_SECS)?;
         let batch_size = parse_env_i64("DEFGUARD_SIEM_BATCH_SIZE", DEFAULT_BATCH_SIZE)?;
@@ -74,7 +80,7 @@ impl SiemRuntimeConfig {
 
         Ok(Some(Self {
             endpoint,
-            bearer_token: non_empty_env("DEFGUARD_SIEM_BEARER_TOKEN"),
+            bearer_token,
             request_timeout: Duration::from_secs(timeout_secs.clamp(1, 300)),
             dispatcher: DispatcherConfig {
                 batch_size: batch_size.clamp(1, 32),
