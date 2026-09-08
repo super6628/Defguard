@@ -42,6 +42,10 @@ pub enum SiemRuntimeConfigError {
     InvalidEndpoint(String),
     #[error("unsupported DEFGUARD_SIEM_HTTP_URL scheme: {0}; expected http or https")]
     UnsupportedEndpointScheme(String),
+    #[error("DEFGUARD_SIEM_HTTP_URL must include a host")]
+    MissingEndpointHost,
+    #[error("DEFGUARD_SIEM_HTTP_URL must not contain a URL fragment")]
+    EndpointFragment,
     #[error("DEFGUARD_SIEM_HTTP_URL must not contain embedded username or password credentials")]
     EmbeddedEndpointCredentials,
     #[error("DEFGUARD_SIEM_BEARER_TOKEN requires an https DEFGUARD_SIEM_HTTP_URL")]
@@ -63,6 +67,12 @@ impl SiemRuntimeConfig {
             return Err(SiemRuntimeConfigError::UnsupportedEndpointScheme(
                 endpoint.scheme().to_owned(),
             ));
+        }
+        if endpoint.host_str().is_none() {
+            return Err(SiemRuntimeConfigError::MissingEndpointHost);
+        }
+        if endpoint.fragment().is_some() {
+            return Err(SiemRuntimeConfigError::EndpointFragment);
         }
         if !endpoint.username().is_empty() || endpoint.password().is_some() {
             return Err(SiemRuntimeConfigError::EmbeddedEndpointCredentials);
