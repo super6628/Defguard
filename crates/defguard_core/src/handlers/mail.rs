@@ -4,6 +4,7 @@ use axum::{
 };
 use chrono::Utc;
 use defguard_common::db::models::{User, gateway::Gateway, proxy::Proxy};
+use serde::Deserialize;
 use serde_json::json;
 use sqlx::query_scalar;
 use tera::Context;
