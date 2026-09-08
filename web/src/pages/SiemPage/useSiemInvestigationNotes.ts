@@ -13,15 +13,19 @@ const loadNotes = (username?: string): SiemInvestigationNotes =>
 
 export const useSiemInvestigationNotes = () => {
   const username = useAuth((state) => state.user?.username);
+  const [storageOwner, setStorageOwner] = useState(username);
   const [notes, setNotes] = useState<SiemInvestigationNotes>(() => loadNotes(username));
 
   useEffect(() => {
+    if (storageOwner === username) return;
     setNotes(loadNotes(username));
-  }, [username]);
+    setStorageOwner(username);
+  }, [storageOwner, username]);
 
   useEffect(() => {
+    if (storageOwner !== username) return;
     writeSiemScopedStorage(SIEM_NOTES_STORAGE_KEY, username, JSON.stringify(notes));
-  }, [notes, username]);
+  }, [notes, storageOwner, username]);
 
   const setEventNote = (eventId: number, note: string) => {
     setNotes((current) => updateSiemNote(current, eventId, note));
