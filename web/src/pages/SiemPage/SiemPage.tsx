@@ -117,23 +117,28 @@ export const SiemPage = () => {
   const [alertView, setAlertView] = useState<AlertView>('all');
   const [detectionView, setDetectionView] = useState<DetectionView>('all');
   const [selectedEvent, setSelectedEvent] = useState<SiemActivityLogEvent | null>(null);
+  const [siemStorageOwner, setSiemStorageOwner] = useState(username);
   const [ruleState, setRuleState] = useState<PersistedRuleState>(() => loadRuleState(username));
   const [alertState, setAlertState] = useState<PersistedAlertState>(() => loadAlertState(username));
   const { getEventNote, setEventNote } = useSiemInvestigationNotes(username);
 
   useEffect(() => {
+    if (siemStorageOwner === username) return;
     setRuleState(loadRuleState(username));
     setAlertState(loadAlertState(username));
     setSelectedEvent(null);
-  }, [username]);
+    setSiemStorageOwner(username);
+  }, [siemStorageOwner, username]);
 
   useEffect(() => {
+    if (siemStorageOwner !== username) return;
     writeSiemScopedStorage(SIEM_RULES_STORAGE_KEY, username, JSON.stringify(ruleState));
-  }, [ruleState, username]);
+  }, [ruleState, siemStorageOwner, username]);
 
   useEffect(() => {
+    if (siemStorageOwner !== username) return;
     writeSiemScopedStorage(SIEM_ALERTS_STORAGE_KEY, username, JSON.stringify(alertState));
-  }, [alertState, username]);
+  }, [alertState, siemStorageOwner, username]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
