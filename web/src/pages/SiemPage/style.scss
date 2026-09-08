@@ -503,9 +503,16 @@
   justify-content: space-between;
   gap: var(--spacing-sm);
 
+  > div {
+    display: flex;
+    flex-shrink: 0;
+    gap: var(--spacing-xs);
+  }
+
   span {
     color: var(--fg-muted);
     font-size: 11px;
+    line-height: 1.4;
   }
 }
 
@@ -603,6 +610,14 @@
   .siem-panel-header,
   .siem-investigation-note-actions {
     align-items: stretch;
+  }
+
+  .siem-investigation-note-actions > div {
+    width: 100%;
+
+    .siem-alert-action {
+      flex: 1;
+    }
   }
 
   .siem-panel-actions {
