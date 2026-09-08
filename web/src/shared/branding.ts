@@ -9,6 +9,9 @@ export type BrandConfig = {
   websiteUrl?: string;
   pricingUrl?: string;
   downloadUrl?: string;
+  desktopLinuxArchUrl?: string;
+  mobileAppleUrl?: string;
+  mobileGoogleUrl?: string;
   salesUrl?: string;
   bugReportUrl?: string;
   featureRequestUrl?: string;
@@ -40,6 +43,9 @@ export const brandConfig: BrandConfig = {
   websiteUrl: readEnv('VITE_BRAND_WEBSITE_URL'),
   pricingUrl: readEnv('VITE_BRAND_PRICING_URL'),
   downloadUrl: readEnv('VITE_BRAND_DOWNLOAD_URL'),
+  desktopLinuxArchUrl: readEnv('VITE_BRAND_DESKTOP_LINUX_ARCH_URL'),
+  mobileAppleUrl: readEnv('VITE_BRAND_MOBILE_APPLE_URL'),
+  mobileGoogleUrl: readEnv('VITE_BRAND_MOBILE_GOOGLE_URL'),
   salesUrl: readEnv('VITE_BRAND_SALES_URL'),
   bugReportUrl: readEnv('VITE_BRAND_BUG_REPORT_URL'),
   featureRequestUrl: readEnv('VITE_BRAND_FEATURE_REQUEST_URL'),
