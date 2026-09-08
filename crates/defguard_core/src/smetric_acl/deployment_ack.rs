@@ -11,6 +11,7 @@ use crate::{appstate::AppState, auth::AdminRole};
 
 use super::location_deployment::{get, mark_applied, mark_error};
 
+const SHA256_HEX_CHARS: usize = 64;
 const MAX_DEPLOYMENT_ERROR_CHARS: usize = 4096;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -37,7 +38,11 @@ pub async fn acknowledge(
     Json(input): Json<DeploymentAcknowledgement>,
 ) -> Result<Json<DeploymentAcknowledgementResult>, Response> {
     let checksum = input.checksum.trim();
-    if input.location_id <= 0 || input.generation <= 0 || checksum.is_empty() {
+    if input.location_id <= 0
+        || input.generation <= 0
+        || checksum.len() != SHA256_HEX_CHARS
+        || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
         return Err((StatusCode::BAD_REQUEST, "invalid deployment acknowledgement").into_response());
     }
 
