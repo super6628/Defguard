@@ -55,13 +55,14 @@ const PageContent = () => {
     [licenseInfo],
   );
 
+  const customerId = licenseInfo?.customer_id ?? '';
   const documentationUrl = brandConfig.documentationUrl ?? externalLink.defguard.docs;
   const supportEmail = brandConfig.supportEmail;
   const bugReportUrl = brandConfig.bugReportUrl ?? externalLink.github.bugReport;
   const featureRequestUrl = brandConfig.featureRequestUrl ?? externalLink.github.featureRequest;
   const supportTicketUrl = brandConfig.supportTicketUrl
-    ? `${brandConfig.supportTicketUrl}${licenseInfo?.customer_id ?? ''}`
-    : `${externalLink.defguard.openTicket}${licenseInfo?.customer_id ?? ''}`;
+    ? brandConfig.supportTicketUrl.replace('{customer_id}', customerId)
+    : `${externalLink.defguard.openTicket}${customerId}`;
   const scheduleCallUrl = brandConfig.scheduleCallUrl ?? externalLink.defguard.scheduleCall;
 
   return (
