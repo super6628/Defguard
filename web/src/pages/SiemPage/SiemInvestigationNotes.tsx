@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 
+const MAX_NOTE_LENGTH = 2000;
+
 type Props = {
   eventId: number;
   initialNote: string;
@@ -13,7 +15,18 @@ export const SiemInvestigationNotes = ({ eventId, initialNote, onSave }: Props) 
     setDraft(initialNote);
   }, [eventId, initialNote]);
 
-  const hasChanges = draft.trim() !== initialNote;
+  const normalizedDraft = draft.trim();
+  const hasChanges = normalizedDraft !== initialNote;
+  const hasSavedNote = initialNote.length > 0;
+
+  const saveNote = () => {
+    onSave(normalizedDraft);
+  };
+
+  const clearNote = () => {
+    setDraft('');
+    onSave('');
+  };
 
   return (
     <div className="siem-investigation-notes">
@@ -21,20 +34,34 @@ export const SiemInvestigationNotes = ({ eventId, initialNote, onSave }: Props) 
       <textarea
         id={`siem-note-${eventId}`}
         value={draft}
+        maxLength={MAX_NOTE_LENGTH}
         onChange={(event) => setDraft(event.target.value)}
         placeholder="Record triage context, follow-up, or escalation details…"
         rows={5}
       />
       <div className="siem-investigation-note-actions">
-        <span>Stored in this browser only.</span>
-        <button
-          className="siem-alert-action"
-          type="button"
-          disabled={!hasChanges}
-          onClick={() => onSave(draft)}
-        >
-          Save note
-        </button>
+        <span>
+          {draft.length}/{MAX_NOTE_LENGTH} characters · stored for this analyst in this browser.
+        </span>
+        <div>
+          {hasSavedNote && (
+            <button
+              className="siem-alert-action"
+              type="button"
+              onClick={clearNote}
+            >
+              Clear note
+            </button>
+          )}
+          <button
+            className="siem-alert-action"
+            type="button"
+            disabled={!hasChanges}
+            onClick={saveNote}
+          >
+            Save note
+          </button>
+        </div>
       </div>
     </div>
   );
