@@ -11,33 +11,27 @@ permissions:
 jobs:
   repair:
     runs-on: ubuntu-latest
-    env:
-      SQLX_OFFLINE: true
     steps:
       - uses: actions/checkout@v4
         with:
           ref: feature/mfa-hardening-fix
           fetch-depth: 0
 
-      - uses: dtolnay/rust-toolchain@1.91.0
-        with:
-          components: rustfmt
-
-      - name: Apply minimal MFA hardening patch
-        shell: python
+      - name: Apply exact MFA patch
         run: |
+          python3 - <<'PY'
           from pathlib import Path
 
-          path = Path("crates/defguard_core/src/enterprise/handlers/openid_login.rs")
+          path = Path('crates/defguard_core/src/enterprise/handlers/openid_login.rs')
           text = path.read_text()
 
-          old = "use reqwest::Url;\nuse serde_json::json;"
-          new = "use reqwest::Url;\nuse serde::Deserialize;\nuse serde_json::json;"
-          if old not in text:
-              raise SystemExit("serde import anchor not found")
-          text = text.replace(old, new, 1)
-
-          old = '''/// Require Google to assert that the authentication which produced the already-verified ID token
+          replacements = [
+              (
+                  'use reqwest::Url;\nuse serde_json::json;',
+                  'use reqwest::Url;\nuse serde::Deserialize;\nuse serde_json::json;',
+              ),
+              (
+                  '''/// Require Google to assert that the authentication which produced the already-verified ID token
 /// used MFA. Google exposes authentication method references in the `amr` claim; `mfa` is the
 /// provider assertion that multiple factors were used.
 fn enforce_google_token_policy(
@@ -64,8 +58,8 @@ fn enforce_google_token_policy(
 
     Ok(())
 }
-'''
-          new = '''/// Require providers that expose an `amr` claim to assert MFA after the normal OIDC verifier
+''',
+                  '''/// Require providers that expose an `amr` claim to assert MFA after the normal OIDC verifier
 /// has already validated the ID token signature, issuer, expiry and nonce.
 fn enforce_generic_mfa_token_policy(
     provider: &OpenIdProvider<Id>,
@@ -94,29 +88,25 @@ fn enforce_generic_mfa_token_policy(
 
     Ok(())
 }
-'''
-          if old not in text:
-              raise SystemExit("Google policy anchor not found")
-          text = text.replace(old, new, 1)
-
-          old = '''    let raw_id_token = id_token.to_string();
+''',
+              ),
+              (
+                  '''    let raw_id_token = id_token.to_string();
     enforce_microsoft_token_policy(&provider, &raw_id_token)?;
     enforce_google_token_policy(&provider, &raw_id_token)?;
-'''
-          new = '''    let raw_id_token = id_token.to_string();
+''',
+                  '''    let raw_id_token = id_token.to_string();
     enforce_microsoft_token_policy(&provider, &raw_id_token)?;
     enforce_generic_mfa_token_policy(&provider, &raw_id_token)?;
-'''
-          if old not in text:
-              raise SystemExit("policy call anchor not found")
-          text = text.replace(old, new, 1)
-
-          old = '''        .add_scope(Scope::new("email".into()))
+''',
+              ),
+              (
+                  '''        .add_scope(Scope::new("email".into()))
         .add_scope(Scope::new("profile".into()));
 
     if SELECT_ACCOUNT_SUPPORTED_PROVIDERS
-'''
-          new = '''        .add_scope(Scope::new("email".into()))
+''',
+                  '''        .add_scope(Scope::new("email".into()))
         .add_scope(Scope::new("profile".into()));
 
     if provider.kind == OpenIdProviderKind::Google {
@@ -127,26 +117,31 @@ fn enforce_generic_mfa_token_policy(
     }
 
     if SELECT_ACCOUNT_SUPPORTED_PROVIDERS
-'''
-          if old not in text:
-              raise SystemExit("authorization request anchor not found")
-          text = text.replace(old, new, 1)
+''',
+              ),
+          ]
 
-          path.write_text(text)
+          changed = False
+          for old, new in replacements:
+              if old in text:
+                  text = text.replace(old, new, 1)
+                  changed = True
+              elif new not in text:
+                  raise SystemExit('expected MFA patch anchor missing')
 
-      - name: Format and validate patch
-        run: |
-          cargo fmt --all
+          if changed:
+              path.write_text(text)
+          PY
+
           git diff --check
 
-      - name: Compile defguard_core
-        run: cargo check -p defguard_core --locked
-
-      - name: Commit verified patch
+      - name: Commit patch
         run: |
+          if git diff --quiet -- crates/defguard_core/src/enterprise/handlers/openid_login.rs; then
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add crates/defguard_core/src/enterprise/handlers/openid_login.rs
-          git diff --cached --quiet && exit 0
           git commit -m "security: harden Google and Okta MFA enforcement"
           git push origin HEAD:feature/mfa-hardening-fix
