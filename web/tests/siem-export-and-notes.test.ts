@@ -5,7 +5,12 @@ import {
 } from '../src/shared/api/activity-log-types';
 import type { SiemActivityLogEvent } from '../src/pages/SiemPage/siem-classification';
 import { buildSiemCsv } from '../src/pages/SiemPage/siem-export';
-import { parseSiemNotes, updateSiemNote } from '../src/pages/SiemPage/siem-notes';
+import {
+  MAX_PERSISTED_SIEM_NOTES,
+  parseSiemNotes,
+  pruneSiemNotes,
+  updateSiemNote,
+} from '../src/pages/SiemPage/siem-notes';
 
 const event: SiemActivityLogEvent = {
   id: 42,
@@ -68,5 +73,33 @@ describe('SIEM investigation notes', () => {
     const added = updateSiemNote({}, 42, '  escalate to IAM  ');
     expect(added).toEqual({ '42': 'escalate to IAM' });
     expect(updateSiemNote(added, 42, '   ')).toEqual({});
+  });
+
+  it('keeps only valid numeric event IDs', () => {
+    expect(
+      pruneSiemNotes({
+        '42': ' keep ',
+        invalid: 'drop',
+        '43': '   ',
+        '44': 5,
+      }),
+    ).toEqual({ '42': 'keep' });
+  });
+
+  it('caps persisted notes to the newest event IDs', () => {
+    const notes = Object.fromEntries(
+      Array.from({ length: MAX_PERSISTED_SIEM_NOTES + 5 }, (_, index) => [
+        String(index + 1),
+        `note-${index + 1}`,
+      ]),
+    );
+
+    const pruned = pruneSiemNotes(notes);
+
+    expect(Object.keys(pruned)).toHaveLength(MAX_PERSISTED_SIEM_NOTES);
+    expect(pruned['1']).toBeUndefined();
+    expect(pruned[String(MAX_PERSISTED_SIEM_NOTES + 5)]).toBe(
+      `note-${MAX_PERSISTED_SIEM_NOTES + 5}`,
+    );
   });
 });
