@@ -27,20 +27,24 @@ export const SiemConnectorPanel = ({
   isFetching,
   onRefresh,
 }: Props) => (
-  <section className="siem-panel siem-connectors-panel" aria-label="SIEM outbound connectors">
+  <section
+    className="siem-panel siem-connectors-panel"
+    aria-label="SIEM outbound connectors"
+    aria-busy={isLoading || isFetching}
+  >
     <div className="siem-panel-header">
       <div>
         <p className="siem-eyebrow">Outbound connectors</p>
         <h3>Activity Log streams</h3>
       </div>
       <div className="siem-panel-actions">
-        <span className="siem-panel-meta">
+        <span className="siem-panel-meta" aria-live="polite">
           {isLoading ? 'Loading…' : isError ? 'Status unavailable' : `${streams.length} configured`}
         </span>
         <button
           className="siem-refresh"
           type="button"
-          disabled={isFetching}
+          disabled={isLoading || isFetching}
           onClick={onRefresh}
         >
           {isFetching ? 'Refreshing…' : 'Refresh connectors'}
@@ -48,15 +52,20 @@ export const SiemConnectorPanel = ({
       </div>
     </div>
 
-    {isError ? (
-      <div className="siem-state">
+    {isLoading ? (
+      <div className="siem-state" role="status">
+        <strong>Loading connector status</strong>
+        <p>Checking the configured Activity Log forwarding destinations.</p>
+      </div>
+    ) : isError ? (
+      <div className="siem-state" role="alert">
         <strong>Connector status could not be loaded</strong>
         <p>
           Security event analysis remains available. Outbound Activity Log stream status can be
           retried independently.
         </p>
       </div>
-    ) : !isLoading && streams.length === 0 ? (
+    ) : streams.length === 0 ? (
       <div className="siem-state">
         <strong>No outbound streams configured</strong>
         <p>
