@@ -13,6 +13,10 @@ import FileIcon from '../../assets/file-icon.png';
 import ShieldIcon from '../../assets/shield.png';
 import { useAutoAdoptionSetupWizardStore } from '../useAutoAdoptionSetupWizardStore';
 
+const openExternal = (url: string) => {
+  window.open(url, '_blank', 'noopener,noreferrer');
+};
+
 export const AutoAdoptionSummaryStep = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const wireguardPort = useAutoAdoptionSetupWizardStore((s) => s.vpn_wireguard_port);
@@ -53,7 +57,7 @@ export const AutoAdoptionSummaryStep = () => {
       kicker: m.initial_setup_auto_adoption_summary_docs_kicker(),
       title: m.initial_setup_auto_adoption_summary_docs_title(),
       buttonText: m.initial_setup_auto_adoption_summary_docs_button(),
-      onButtonClick: () => window.open(brandConfig.documentationUrl, '_blank'),
+      onButtonClick: () => openExternal(brandConfig.documentationUrl as string),
     });
   }
 
@@ -64,7 +68,7 @@ export const AutoAdoptionSummaryStep = () => {
       kicker: m.initial_setup_auto_adoption_summary_community_kicker(),
       title: m.initial_setup_auto_adoption_summary_community_title(),
       buttonText: m.initial_setup_auto_adoption_summary_community_button(),
-      onButtonClick: () => window.open(brandConfig.communityUrl, '_blank'),
+      onButtonClick: () => openExternal(brandConfig.communityUrl as string),
     });
   }
 
@@ -75,7 +79,7 @@ export const AutoAdoptionSummaryStep = () => {
       kicker: m.initial_setup_auto_adoption_summary_support_kicker(),
       title: m.initial_setup_auto_adoption_summary_support_title(),
       buttonText: m.initial_setup_auto_adoption_summary_support_button(),
-      onButtonClick: () => window.open(brandConfig.websiteUrl, '_blank'),
+      onButtonClick: () => openExternal(brandConfig.websiteUrl as string),
     });
   }
 
