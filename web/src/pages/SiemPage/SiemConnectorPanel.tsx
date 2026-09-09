@@ -22,12 +22,7 @@ const formatStreamType = (streamType: ActivityLogStream['stream_type']) => {
 
 export const formatConnectorDestination = (value: string) => {
   try {
-    const destination = new URL(value);
-    destination.username = '';
-    destination.password = '';
-    destination.search = '';
-    destination.hash = '';
-    return destination.toString();
+    return new URL(value).origin;
   } catch {
     return 'Configured destination';
   }
