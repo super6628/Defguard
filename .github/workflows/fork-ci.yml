@@ -92,4 +92,4 @@ jobs:
           tool: cargo-nextest
 
       - name: Run all-feature tests
-        run: cargo nextest run --locked --all-features --no-fail-fast
+        run: cargo nextest run --locked --all-features --no-fail-fast --failure-output immediate-final
