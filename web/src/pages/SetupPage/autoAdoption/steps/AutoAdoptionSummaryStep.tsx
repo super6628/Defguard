@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 import { m } from '../../../../paraglide/messages';
 import api from '../../../../shared/api/api';
+import { brandConfig } from '../../../../shared/branding';
 import {
   WizardStepSummary,
   type WizardStepSummaryRecommendation,
@@ -43,33 +44,40 @@ export const AutoAdoptionSummaryStep = () => {
     }
   };
 
-  const recommendations: WizardStepSummaryRecommendation[] = [
-    {
+  const recommendations: WizardStepSummaryRecommendation[] = [];
+
+  if (brandConfig.documentationUrl) {
+    recommendations.push({
       iconSrc: FileIcon,
       iconAlt: m.initial_setup_auto_adoption_summary_docs_icon_alt(),
       kicker: m.initial_setup_auto_adoption_summary_docs_kicker(),
       title: m.initial_setup_auto_adoption_summary_docs_title(),
       buttonText: m.initial_setup_auto_adoption_summary_docs_button(),
-      onButtonClick: () => window.open('https://docs.defguard.net/', '_blank'),
-    },
-    {
+      onButtonClick: () => window.open(brandConfig.documentationUrl, '_blank'),
+    });
+  }
+
+  if (brandConfig.communityUrl) {
+    recommendations.push({
       iconSrc: CommunityIcon,
       iconAlt: m.initial_setup_auto_adoption_summary_community_icon_alt(),
       kicker: m.initial_setup_auto_adoption_summary_community_kicker(),
       title: m.initial_setup_auto_adoption_summary_community_title(),
       buttonText: m.initial_setup_auto_adoption_summary_community_button(),
-      onButtonClick: () =>
-        window.open('https://github.com/DefGuard/defguard/discussions', '_blank'),
-    },
-    {
+      onButtonClick: () => window.open(brandConfig.communityUrl, '_blank'),
+    });
+  }
+
+  if (brandConfig.websiteUrl) {
+    recommendations.push({
       iconSrc: ShieldIcon,
       iconAlt: m.initial_setup_auto_adoption_summary_support_icon_alt(),
       kicker: m.initial_setup_auto_adoption_summary_support_kicker(),
       title: m.initial_setup_auto_adoption_summary_support_title(),
       buttonText: m.initial_setup_auto_adoption_summary_support_button(),
-      onButtonClick: () => window.open('https://github.com/DefGuard/defguard', '_blank'),
-    },
-  ];
+      onButtonClick: () => window.open(brandConfig.websiteUrl, '_blank'),
+    });
+  }
 
   return (
     <WizardStepSummary
