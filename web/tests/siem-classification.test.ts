@@ -49,6 +49,7 @@ describe('SIEM activity-log classification', () => {
     expect(getFallbackSeverity(ActivityLogEventType.MfaDisabled)).toBe('critical');
     expect(getFallbackSeverity(ActivityLogEventType.MfaTotpDisabled)).toBe('high');
     expect(getFallbackSeverity(ActivityLogEventType.ActivityLogStreamRemoved)).toBe('medium');
+    expect(getFallbackSeverity(ActivityLogEventType.SettingsDefaultBrandingRestored)).toBe('medium');
     expect(getFallbackSeverity(ActivityLogEventType.UserLogin)).toBe('low');
   });
 
@@ -63,6 +64,9 @@ describe('SIEM activity-log classification', () => {
       'posture-failures',
     ]);
     expect(getFallbackDetections(ActivityLogEventType.WebHookModified)).toEqual([
+      'infrastructure-changes',
+    ]);
+    expect(getFallbackDetections(ActivityLogEventType.SettingsDefaultBrandingRestored)).toEqual([
       'infrastructure-changes',
     ]);
   });
