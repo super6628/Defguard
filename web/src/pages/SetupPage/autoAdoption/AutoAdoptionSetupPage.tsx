@@ -3,6 +3,7 @@ import { type ReactNode, useMemo } from 'react';
 import { m } from '../../../paraglide/messages';
 import api from '../../../shared/api/api';
 import type { SetupAutoAdoptionResponse } from '../../../shared/api/types';
+import { brandConfig } from '../../../shared/branding';
 import { Controls } from '../../../shared/components/Controls/Controls';
 import type { WizardPageStep } from '../../../shared/components/wizard/types';
 import { WizardPage } from '../../../shared/components/wizard/WizardPage/WizardPage';
@@ -49,6 +50,10 @@ type AutoAdoptionWelcomeContentProps = {
 const AutoAdoptionFailedWelcomeContent = ({
   results,
 }: AutoAdoptionWelcomeContentProps) => {
+  const supportEmail = brandConfig.supportEmail;
+  const communityUrl = brandConfig.communityUrl;
+  const showSupportLinks = Boolean(supportEmail || communityUrl);
+
   return (
     <div className="auto-adoption-welcome-content">
       <Divider spacing={ThemeSpacing.Xl2} />
@@ -104,28 +109,36 @@ const AutoAdoptionFailedWelcomeContent = ({
           })}
         </ul>
       </div>
-      <SizedBox height={ThemeSpacing.Lg} />
-      <div className="support-links">
-        <div className="support-row">
-          <Icon icon="support" />
-          <p>
-            {m.initial_setup_auto_adoption_failed_support_business_prefix()}{' '}
-            <a href="mailto:support@defguard.net">
-              {m.initial_setup_auto_adoption_failed_support_business_link()}
-            </a>{' '}
-            {m.initial_setup_auto_adoption_failed_support_business_suffix()}
-          </p>
-        </div>
-        <div className="support-row">
-          <Icon icon="config" />
-          <p>
-            {m.initial_setup_auto_adoption_failed_support_community_prefix()}{' '}
-            <ExternalLink href="https://github.com/DefGuard/defguard/discussions">
-              {m.initial_setup_auto_adoption_failed_support_community_link()}
-            </ExternalLink>
-          </p>
-        </div>
-      </div>
+      {showSupportLinks && (
+        <>
+          <SizedBox height={ThemeSpacing.Lg} />
+          <div className="support-links">
+            {supportEmail && (
+              <div className="support-row">
+                <Icon icon="support" />
+                <p>
+                  {m.initial_setup_auto_adoption_failed_support_business_prefix()}{' '}
+                  <a href={`mailto:${supportEmail}`}>
+                    {m.initial_setup_auto_adoption_failed_support_business_link()}
+                  </a>{' '}
+                  {m.initial_setup_auto_adoption_failed_support_business_suffix()}
+                </p>
+              </div>
+            )}
+            {communityUrl && (
+              <div className="support-row">
+                <Icon icon="config" />
+                <p>
+                  {m.initial_setup_auto_adoption_failed_support_community_prefix()}{' '}
+                  <ExternalLink href={communityUrl}>
+                    {m.initial_setup_auto_adoption_failed_support_community_link()}
+                  </ExternalLink>
+                </p>
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 };
