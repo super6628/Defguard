@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { type ReactNode, useEffect, useMemo } from 'react';
 import { m } from '../../../paraglide/messages';
+import { brandConfig } from '../../../shared/branding';
 import { Controls } from '../../../shared/components/Controls/Controls';
 import type { WizardPageStep } from '../../../shared/components/wizard/types';
 import { WizardPage } from '../../../shared/components/wizard/WizardPage/WizardPage';
@@ -34,7 +35,7 @@ const WelcomePageContent = () => (
   <div className="left">
     <Divider spacing={ThemeSpacing.Xl2} />
     <Controls>
-      <Button text="Configure S-Metric Secure" onClick={handleStartWizard} />
+      <Button text={`Configure ${brandConfig.productName}`} onClick={handleStartWizard} />
     </Controls>
   </div>
 );
@@ -152,16 +153,15 @@ export const SetupPage = () => {
   return (
     <WizardPage
       activeStep={activeStep}
-      subtitle="This wizard will guide you through the initial configuration of your S-Metric Secure instance."
+      subtitle={`This wizard will guide you through the initial configuration of your ${brandConfig.productName} instance.`}
       title="Initial Setup Wizard"
       steps={stepsConfig}
       id="setup-wizard"
       videoGuidePlacementKey="initialSetupWizard"
       isOnWelcomePage={isOnWelcomePage}
       welcomePageConfig={{
-        title: 'Welcome to S-Metric Secure!',
-        subtitle:
-          'This wizard walks you through the steps to configure your S-Metric Secure instance, connect all necessary components (Edge, Gateway), and finally set up a VPN Location.',
+        title: `Welcome to ${brandConfig.productName}!`,
+        subtitle: `This wizard walks you through the steps to configure your ${brandConfig.productName} instance, connect all necessary components (Edge, Gateway), and finally set up a VPN Location.`,
         content: <WelcomePageContent />,
         media: <img src={worldMap} alt="World map" />,
       }}
