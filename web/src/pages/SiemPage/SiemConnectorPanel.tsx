@@ -20,6 +20,19 @@ const formatStreamType = (streamType: ActivityLogStream['stream_type']) => {
   }
 };
 
+export const formatConnectorDestination = (value: string) => {
+  try {
+    const destination = new URL(value);
+    destination.username = '';
+    destination.password = '';
+    destination.search = '';
+    destination.hash = '';
+    return destination.toString();
+  } catch {
+    return 'Configured destination';
+  }
+};
+
 export const SiemConnectorPanel = ({
   streams,
   isLoading,
@@ -89,7 +102,9 @@ export const SiemConnectorPanel = ({
             <dl className="siem-connector-details">
               <div>
                 <dt>Destination</dt>
-                <dd>{stream.config.url}</dd>
+                <dd title={formatConnectorDestination(stream.config.url)}>
+                  {formatConnectorDestination(stream.config.url)}
+                </dd>
               </div>
               <div>
                 <dt>Authentication</dt>
