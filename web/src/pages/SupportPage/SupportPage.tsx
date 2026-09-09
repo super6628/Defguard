@@ -13,7 +13,6 @@ import { SettingsCard } from '../../shared/components/SettingsCard/SettingsCard'
 import { SettingsHeader } from '../../shared/components/SettingsHeader/SettingsHeader';
 import { SettingsLayout } from '../../shared/components/SettingsLayout/SettingsLayout';
 import { SettingsCardSkeleton } from '../../shared/components/skeleton/SettingsCardSkeleton/SettingsCardSkeleton';
-import { externalLink } from '../../shared/constants';
 import { AppText } from '../../shared/defguard-ui/components/AppText/AppText';
 import { Button } from '../../shared/defguard-ui/components/Button/Button';
 import { ButtonMenu } from '../../shared/defguard-ui/components/ButtonMenu/MenuButton';
@@ -56,38 +55,44 @@ const PageContent = () => {
   );
 
   const customerId = licenseInfo?.customer_id ?? '';
-  const documentationUrl = brandConfig.documentationUrl ?? externalLink.defguard.docs;
+  const documentationUrl = brandConfig.documentationUrl;
   const supportEmail = brandConfig.supportEmail;
-  const bugReportUrl = brandConfig.bugReportUrl ?? externalLink.github.bugReport;
-  const featureRequestUrl = brandConfig.featureRequestUrl ?? externalLink.github.featureRequest;
-  const supportTicketUrl = brandConfig.supportTicketUrl
-    ? brandConfig.supportTicketUrl.replace('{customer_id}', customerId)
-    : `${externalLink.defguard.openTicket}${customerId}`;
-  const scheduleCallUrl = brandConfig.scheduleCallUrl ?? externalLink.defguard.scheduleCall;
+  const bugReportUrl = brandConfig.bugReportUrl;
+  const featureRequestUrl = brandConfig.featureRequestUrl;
+  const supportTicketUrl = brandConfig.supportTicketUrl?.replace('{customer_id}', customerId);
+  const scheduleCallUrl = brandConfig.scheduleCallUrl;
+  const hasDirectSupportAction = Boolean(supportTicketUrl || scheduleCallUrl);
 
   return (
     <SettingsCard>
-      <MarkedSection icon="help">
-        <AppText font={TextStyle.TBodyPrimary600} color={ThemeVariable.FgDefault}>
-          {m.support_page_docs_title()}
-        </AppText>
-        <SizedBox height={ThemeSpacing.Xl} />
-        <div className="doc-highlight">
-          <img src={docIllustration} alt="" className="doc-highlight-illustration" />
-          <div className="doc-highlight-content">
-            <AppText font={TextStyle.TBodySm400} color={ThemeVariable.FgFaded}>
-              {m.support_page_docs_desc()}
+      {documentationUrl && (
+        <>
+          <MarkedSection icon="help">
+            <AppText font={TextStyle.TBodyPrimary600} color={ThemeVariable.FgDefault}>
+              {m.support_page_docs_title()}
             </AppText>
-            <Button
-              variant="primary"
-              text={m.support_page_docs_btn()}
-              iconRight="open-in-new-window"
-              onClick={() => window.open(documentationUrl, '_blank', 'noopener,noreferrer')}
-            />
-          </div>
-        </div>
-      </MarkedSection>
-      <Divider spacing={ThemeSpacing.Xl2} />
+            <SizedBox height={ThemeSpacing.Xl} />
+            <div className="doc-highlight">
+              <img src={docIllustration} alt="" className="doc-highlight-illustration" />
+              <div className="doc-highlight-content">
+                <AppText font={TextStyle.TBodySm400} color={ThemeVariable.FgFaded}>
+                  {m.support_page_docs_desc()}
+                </AppText>
+                <Button
+                  variant="primary"
+                  text={m.support_page_docs_btn()}
+                  iconRight="open-in-new-window"
+                  onClick={() =>
+                    window.open(documentationUrl, '_blank', 'noopener,noreferrer')
+                  }
+                />
+              </div>
+            </div>
+          </MarkedSection>
+          <Divider spacing={ThemeSpacing.Xl2} />
+        </>
+      )}
+
       <MarkedSection icon="bug">
         <AppText font={TextStyle.TBodyPrimary600} color={ThemeVariable.FgDefault}>
           {m.support_page_bug_title()}
@@ -102,12 +107,14 @@ const PageContent = () => {
         </AppText>
         <SizedBox height={ThemeSpacing.Xl} />
         <ButtonsGroup>
-          <Button
-            variant="secondary"
-            text={m.support_page_bug_btn_report()}
-            iconRight="open-in-new-window"
-            onClick={() => window.open(bugReportUrl, '_blank', 'noopener,noreferrer')}
-          />
+          {bugReportUrl && (
+            <Button
+              variant="secondary"
+              text={m.support_page_bug_btn_report()}
+              iconRight="open-in-new-window"
+              onClick={() => window.open(bugReportUrl, '_blank', 'noopener,noreferrer')}
+            />
+          )}
           <ButtonMenu
             variant="outlined"
             text={m.support_page_bug_btn_download()}
@@ -133,21 +140,29 @@ const PageContent = () => {
           />
         </ButtonsGroup>
       </MarkedSection>
-      <Divider spacing={ThemeSpacing.Xl2} />
-      <MarkedSection icon="request">
-        <MarkedSectionHeader
-          title={m.support_page_feature_title()}
-          description={m.support_page_feature_desc()}
-        />
-        <ButtonsGroup>
-          <Button
-            variant="secondary"
-            text={m.support_page_feature_btn()}
-            iconRight="open-in-new-window"
-            onClick={() => window.open(featureRequestUrl, '_blank', 'noopener,noreferrer')}
-          />
-        </ButtonsGroup>
-      </MarkedSection>
+
+      {featureRequestUrl && (
+        <>
+          <Divider spacing={ThemeSpacing.Xl2} />
+          <MarkedSection icon="request">
+            <MarkedSectionHeader
+              title={m.support_page_feature_title()}
+              description={m.support_page_feature_desc()}
+            />
+            <ButtonsGroup>
+              <Button
+                variant="secondary"
+                text={m.support_page_feature_btn()}
+                iconRight="open-in-new-window"
+                onClick={() =>
+                  window.open(featureRequestUrl, '_blank', 'noopener,noreferrer')
+                }
+              />
+            </ButtonsGroup>
+          </MarkedSection>
+        </>
+      )}
+
       {(supportType === 'Basic' || supportType === 'Direct') && supportEmail && (
         <>
           <Divider spacing={ThemeSpacing.Xl2} />
@@ -163,7 +178,8 @@ const PageContent = () => {
           </MarkedSection>
         </>
       )}
-      {supportType === 'Direct' && (
+
+      {supportType === 'Direct' && hasDirectSupportAction && (
         <>
           <Divider spacing={ThemeSpacing.Xl2} />
           <MarkedSection icon="chat">
@@ -172,18 +188,26 @@ const PageContent = () => {
               description={m.support_page_assistance_desc()}
             />
             <ButtonsGroup>
-              <Button
-                variant="outlined"
-                text={m.support_page_assistance_btn_ticket()}
-                iconRight="open-in-new-window"
-                onClick={() => window.open(supportTicketUrl, '_blank', 'noopener,noreferrer')}
-              />
-              <Button
-                variant="outlined"
-                text={m.support_page_assistance_btn_call()}
-                iconRight="calendar"
-                onClick={() => window.open(scheduleCallUrl, '_blank', 'noopener,noreferrer')}
-              />
+              {supportTicketUrl && (
+                <Button
+                  variant="outlined"
+                  text={m.support_page_assistance_btn_ticket()}
+                  iconRight="open-in-new-window"
+                  onClick={() =>
+                    window.open(supportTicketUrl, '_blank', 'noopener,noreferrer')
+                  }
+                />
+              )}
+              {scheduleCallUrl && (
+                <Button
+                  variant="outlined"
+                  text={m.support_page_assistance_btn_call()}
+                  iconRight="calendar"
+                  onClick={() =>
+                    window.open(scheduleCallUrl, '_blank', 'noopener,noreferrer')
+                  }
+                />
+              )}
             </ButtonsGroup>
           </MarkedSection>
         </>
