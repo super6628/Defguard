@@ -6,7 +6,7 @@ use std::{
 use axum::extract::FromRef;
 use axum_extra::extract::cookie::Key;
 use defguard_common::{db::models::Settings, types::proxy::ProxyControlMessage};
-use reqwest::Client;
+use reqwest::{Client, redirect::Policy};
 use serde_json::json;
 use sqlx::PgPool;
 use tokio::{
@@ -60,44 +60,54 @@ impl AppState {
         let reqwest_client = Client::builder()
             .user_agent("defguard-webhook/1")
             .timeout(WEBHOOK_DELIVERY_TIMEOUT)
+            // Never follow redirects for outbound webhooks. The configured target is the
+            // security boundary; following a redirect could move delivery to an unintended
+            // host after the stored URL has already been reviewed/validated.
+            .redirect(Policy::none())
             .build()
             .expect("Failed to build webhook HTTP client");
         while let Some(msg) = rx.recv().await {
             debug!("WebHook triggered");
             debug!("Retrieving webhooks");
-            if let Ok(webhooks) = WebHook::all_enabled(&pool, &msg).await {
-                debug!("Found {} enabled webhook(s)", webhooks.len());
-                let (payload, event) = match msg {
-                    AppEvent::UserCreated(user) => (json!(user), "user_created"),
-                    AppEvent::UserModified(user) => (json!(user), "user_modified"),
-                    AppEvent::UserDeleted(username) => {
-                        (json!({"username": username}), "user_deleted")
-                    }
-                    AppEvent::HWKeyProvision(data) => (json!(data), "user_keys"),
-                };
-                for webhook in webhooks {
-                    let mut request = reqwest_client
-                        .post(&webhook.url)
-                        .header(X_DEFGUARD_EVENT, event)
-                        .json(&payload);
-                    if !webhook.token.trim().is_empty() {
-                        request = request.bearer_auth(&webhook.token);
-                    }
+            let webhooks = match WebHook::all_enabled(&pool, &msg).await {
+                Ok(webhooks) => webhooks,
+                Err(err) => {
+                    error!("Failed to retrieve enabled webhooks: {err}");
+                    continue;
+                }
+            };
 
-                    match request.send().await {
-                        Ok(res) if res.status().is_success() => {
-                            info!("Webhook {} delivered, status {}", webhook.id, res.status());
-                        }
-                        Ok(res) => {
-                            warn!(
-                                "Webhook {} returned non-success status {}",
-                                webhook.id,
-                                res.status()
-                            );
-                        }
-                        Err(_) => {
-                            error!("Webhook {} delivery failed", webhook.id);
-                        }
+            debug!("Found {} enabled webhook(s)", webhooks.len());
+            let (payload, event) = match msg {
+                AppEvent::UserCreated(user) => (json!(user), "user_created"),
+                AppEvent::UserModified(user) => (json!(user), "user_modified"),
+                AppEvent::UserDeleted(username) => {
+                    (json!({"username": username}), "user_deleted")
+                }
+                AppEvent::HWKeyProvision(data) => (json!(data), "user_keys"),
+            };
+            for webhook in webhooks {
+                let mut request = reqwest_client
+                    .post(&webhook.url)
+                    .header(X_DEFGUARD_EVENT, event)
+                    .json(&payload);
+                if !webhook.token.trim().is_empty() {
+                    request = request.bearer_auth(&webhook.token);
+                }
+
+                match request.send().await {
+                    Ok(res) if res.status().is_success() => {
+                        info!("Webhook {} delivered, status {}", webhook.id, res.status());
+                    }
+                    Ok(res) => {
+                        warn!(
+                            "Webhook {} returned non-success status {}",
+                            webhook.id,
+                            res.status()
+                        );
+                    }
+                    Err(_) => {
+                        error!("Webhook {} delivery failed", webhook.id);
                     }
                 }
             }
