@@ -1,6 +1,21 @@
 import { brandConfig } from '../../../branding';
 import { ThemeVariable } from '../../../defguard-ui/types';
 
+const getProductSuffix = (): string => {
+  const productName = brandConfig.productName.trim();
+  const companyName = brandConfig.companyName.trim();
+
+  if (
+    companyName.length > 0 &&
+    productName.toLocaleLowerCase().startsWith(companyName.toLocaleLowerCase())
+  ) {
+    const suffix = productName.slice(companyName.length).trim();
+    return suffix || 'SECURE';
+  }
+
+  return productName || 'SECURE';
+};
+
 export const NavLogo = () => {
   if (brandConfig.logoUrl) {
     return (
@@ -45,7 +60,7 @@ export const NavLogo = () => {
         fontWeight="500"
         style={{ fill: ThemeVariable.FgFaded }}
       >
-        {brandConfig.productName.replace(new RegExp(`^${brandConfig.companyName}\\s*`, 'i'), '').toUpperCase() || 'SECURE'}
+        {getProductSuffix().toUpperCase()}
       </text>
     </svg>
   );
