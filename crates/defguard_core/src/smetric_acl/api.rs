@@ -52,6 +52,7 @@ pub fn router() -> Router<AppState> {
             "/policies/{policy_id}/assignments/{location_id}",
             post(set_assignment).delete(remove_assignment),
         )
+        .nest("/client-traffic", super::traffic_policy::api::router())
         .merge(super::device_groups::router())
         .merge(super::deployment_ack::router())
 }
@@ -136,15 +137,14 @@ async fn deploy_effective(
     Ok(())
 }
 
-async fn current_revision_is_published(
+async fn has_published_snapshot(
     state: &AppState,
     policy_id: i64,
 ) -> Result<bool, Response> {
     sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS( \
-            SELECT 1 FROM smetric_acl_policy p \
-            JOIN smetric_acl_revision r ON r.policy_id=p.id AND r.revision=p.revision \
-            WHERE p.id=$1 \
+            SELECT 1 FROM smetric_acl_revision \
+            WHERE policy_id=$1 AND policy_snapshot IS NOT NULL \
         )",
     )
     .bind(policy_id)
@@ -211,10 +211,10 @@ pub async fn set_policy_enabled(
     .await
     .map_err(|error| ApiError(ServiceError::Database(error)).into_response())?;
 
-    if input.enabled && !current_revision_is_published(&state, policy_id).await? {
+    if input.enabled && !has_published_snapshot(&state, policy_id).await? {
         return Err(message_response(
             StatusCode::BAD_REQUEST,
-            "publish the current policy revision before enabling it",
+            "publish the policy before enabling it",
         ));
     }
 
@@ -352,10 +352,10 @@ pub async fn set_assignment(
     let changes_effective_firewall = policy.enabled && existing != Some(input.enabled);
     let replacement = if changes_effective_firewall {
         if input.enabled {
-            if !current_revision_is_published(&state, policy_id).await? {
+            if !has_published_snapshot(&state, policy_id).await? {
                 return Err(message_response(
                     StatusCode::BAD_REQUEST,
-                    "publish the current policy revision before enabling its assignment",
+                    "publish the policy before enabling its assignment",
                 ));
             }
             Some(

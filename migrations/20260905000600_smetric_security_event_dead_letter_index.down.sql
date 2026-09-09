@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS smetric_security_event_outbox_dead_lettered_idx;
