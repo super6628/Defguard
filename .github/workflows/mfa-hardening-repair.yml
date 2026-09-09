@@ -1,0 +1,152 @@
+name: MFA hardening repair
+
+on:
+  push:
+    branches:
+      - feature/mfa-hardening-fix
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    env:
+      SQLX_OFFLINE: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/mfa-hardening-fix
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@1.91.0
+        with:
+          components: rustfmt
+
+      - name: Apply minimal MFA hardening patch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("crates/defguard_core/src/enterprise/handlers/openid_login.rs")
+          text = path.read_text()
+
+          old = "use reqwest::Url;\nuse serde_json::json;"
+          new = "use reqwest::Url;\nuse serde::Deserialize;\nuse serde_json::json;"
+          if old not in text:
+              raise SystemExit("serde import anchor not found")
+          text = text.replace(old, new, 1)
+
+          old = '''/// Require Google to assert that the authentication which produced the already-verified ID token
+/// used MFA. Google exposes authentication method references in the `amr` claim; `mfa` is the
+/// provider assertion that multiple factors were used.
+fn enforce_google_token_policy(
+    provider: &OpenIdProvider<Id>,
+    id_token: &str,
+) -> Result<(), WebError> {
+    if provider.kind != OpenIdProviderKind::Google {
+        return Ok(());
+    }
+
+    let claims: GoogleIdTokenClaims = decode_id_token_claims(id_token, "Google")?;
+    if !claims
+        .amr
+        .iter()
+        .any(|method| method.eq_ignore_ascii_case("mfa"))
+    {
+        warn!(
+            "Google OpenID login rejected: verified ID token did not contain the mfa authentication method reference"
+        );
+        return Err(WebError::Authorization(
+            "Google login did not satisfy the required MFA policy".into(),
+        ));
+    }
+
+    Ok(())
+}
+'''
+          new = '''/// Require providers that expose an `amr` claim to assert MFA after the normal OIDC verifier
+/// has already validated the ID token signature, issuer, expiry and nonce.
+fn enforce_generic_mfa_token_policy(
+    provider: &OpenIdProvider<Id>,
+    id_token: &str,
+) -> Result<(), WebError> {
+    let provider_name = match provider.kind {
+        OpenIdProviderKind::Google => "Google",
+        OpenIdProviderKind::Okta => "Okta",
+        _ => return Ok(()),
+    };
+
+    let claims: GoogleIdTokenClaims = decode_id_token_claims(id_token, provider_name)?;
+    if !claims
+        .amr
+        .iter()
+        .any(|method| method.eq_ignore_ascii_case("mfa"))
+    {
+        warn!(
+            "{} OpenID login rejected: verified ID token did not contain the mfa authentication method reference",
+            provider_name
+        );
+        return Err(WebError::Authorization(format!(
+            "{provider_name} login did not satisfy the required MFA policy"
+        )));
+    }
+
+    Ok(())
+}
+'''
+          if old not in text:
+              raise SystemExit("Google policy anchor not found")
+          text = text.replace(old, new, 1)
+
+          old = '''    let raw_id_token = id_token.to_string();
+    enforce_microsoft_token_policy(&provider, &raw_id_token)?;
+    enforce_google_token_policy(&provider, &raw_id_token)?;
+'''
+          new = '''    let raw_id_token = id_token.to_string();
+    enforce_microsoft_token_policy(&provider, &raw_id_token)?;
+    enforce_generic_mfa_token_policy(&provider, &raw_id_token)?;
+'''
+          if old not in text:
+              raise SystemExit("policy call anchor not found")
+          text = text.replace(old, new, 1)
+
+          old = '''        .add_scope(Scope::new("email".into()))
+        .add_scope(Scope::new("profile".into()));
+
+    if SELECT_ACCOUNT_SUPPORTED_PROVIDERS
+'''
+          new = '''        .add_scope(Scope::new("email".into()))
+        .add_scope(Scope::new("profile".into()));
+
+    if provider.kind == OpenIdProviderKind::Google {
+        authorize_url_builder = authorize_url_builder.add_extra_param(
+            "claims",
+            r#"{"id_token":{"amr":{"essential":true}}}"#,
+        );
+    }
+
+    if SELECT_ACCOUNT_SUPPORTED_PROVIDERS
+'''
+          if old not in text:
+              raise SystemExit("authorization request anchor not found")
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+
+      - name: Format and validate patch
+        run: |
+          cargo fmt --all
+          git diff --check
+
+      - name: Compile defguard_core
+        run: cargo check -p defguard_core --locked
+
+      - name: Commit verified patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/defguard_core/src/enterprise/handlers/openid_login.rs
+          git diff --cached --quiet && exit 0
+          git commit -m "security: harden Google and Okta MFA enforcement"
+          git push origin HEAD:feature/mfa-hardening-fix
