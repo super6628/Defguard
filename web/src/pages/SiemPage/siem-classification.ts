@@ -73,6 +73,7 @@ const highEvents = new Set<ActivityLogEventTypeValue>([
 const mediumEvents = new Set<ActivityLogEventTypeValue>([
   'settings_updated',
   'settings_updated_partial',
+  'settings_default_branding_restored',
   'enterprise_settings_updated',
   'api_token_added',
   'api_token_removed',
@@ -160,6 +161,7 @@ const infrastructureChangeEvents = new Set<ActivityLogEventTypeValue>([
   'proxy_disconnected',
   'settings_updated',
   'settings_updated_partial',
+  'settings_default_branding_restored',
   'enterprise_settings_updated',
   'group_added',
   'group_modified',
