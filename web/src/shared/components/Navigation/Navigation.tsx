@@ -45,8 +45,6 @@ interface NavItemProps {
   icon: IconKindValue;
   link: LinkProps['to'];
   licenseTier?: LicenseTierValue;
-  // Enterprise feature backing this item; when granted via an additive license flag the item
-  // unlocks even on a lower tier than `licenseTier`.
   licenseFeature?: LicenseFeatureValue;
   license?: LicenseInfo | null;
   testId?: string;
@@ -58,49 +56,20 @@ const navigationConfig: NavGroupProps[] = [
     id: 'vpn',
     label: m.cmp_nav_group_vpn(),
     items: [
-      {
-        id: 'overview',
-        icon: 'pie-chart',
-        label: m.cmp_nav_item_overview(),
-        link: '/vpn-overview',
-      },
-      {
-        id: 'locations',
-        icon: 'location-tracking',
-        label: m.cmp_nav_item_locations(),
-        link: '/locations',
-      },
+      { id: 'overview', icon: 'pie-chart', label: m.cmp_nav_item_overview(), link: '/vpn-overview' },
+      { id: 'locations', icon: 'location-tracking', label: m.cmp_nav_item_locations(), link: '/locations' },
     ],
   },
   {
     id: 'identity',
     label: m.cmp_nav_group_identity(),
     items: [
+      { id: 'users', icon: 'users', label: m.cmp_nav_item_users(), link: '/users' },
+      { id: 'groups', icon: 'groups', label: m.cmp_nav_item_groups(), link: '/groups', testId: 'groups' },
+      { id: 'enrollment', icon: 'key', label: m.cmp_nav_item_enrollment(), link: '/enrollment' },
       {
-        id: 'users',
-        icon: 'users',
-        label: m.cmp_nav_item_users(),
-        link: '/users',
-      },
-      {
-        id: 'groups',
-        icon: 'groups',
-        label: m.cmp_nav_item_groups(),
-        link: '/groups',
-        testId: 'groups',
-      },
-      {
-        id: 'enrollment',
-        icon: 'key',
-        label: m.cmp_nav_item_enrollment(),
-        link: '/enrollment',
-      },
-      {
-        id: 'posture_checks',
-        icon: 'connected-devices',
-        label: m.cmp_nav_item_posture_checks(),
-        link: '/acl/posture-checks',
-        licenseTier: LicenseTier.Enterprise,
+        id: 'posture_checks', icon: 'connected-devices', label: m.cmp_nav_item_posture_checks(),
+        link: '/acl/posture-checks', licenseTier: LicenseTier.Enterprise,
         licenseFeature: LicenseFeature.DevicePosture,
       },
     ],
@@ -109,81 +78,29 @@ const navigationConfig: NavGroupProps[] = [
     id: 'firewall',
     label: m.cmp_nav_group_firewall(),
     items: [
-      {
-        id: 'rules',
-        icon: 'rules',
-        label: m.cmp_nav_item_rules(),
-        link: '/acl/rules',
-        licenseTier: LicenseTier.Business,
-      },
-      {
-        id: 'destinations',
-        icon: 'gateway',
-        label: m.cmp_nav_item_destinations(),
-        link: '/acl/destinations',
-        licenseTier: LicenseTier.Business,
-      },
-      {
-        id: 'aliases',
-        icon: 'access-settings',
-        label: m.cmp_nav_item_aliases(),
-        link: '/acl/aliases',
-        licenseTier: LicenseTier.Business,
-      },
+      { id: 'rules', icon: 'rules', label: m.cmp_nav_item_rules(), link: '/acl/rules', licenseTier: LicenseTier.Business },
+      { id: 'destinations', icon: 'gateway', label: m.cmp_nav_item_destinations(), link: '/acl/destinations', licenseTier: LicenseTier.Business },
+      { id: 'aliases', icon: 'access-settings', label: m.cmp_nav_item_aliases(), link: '/acl/aliases', licenseTier: LicenseTier.Business },
     ],
   },
   {
     id: 'integrations',
     label: m.cmp_nav_group_integrations(),
     items: [
-      {
-        id: 'activity_log',
-        icon: 'activity',
-        label: m.cmp_nav_item_activity_log(),
-        link: '/activity',
-      },
-      {
-        id: 'network_devices',
-        icon: 'devices',
-        label: m.cmp_nav_item_network_devices(),
-        link: '/network-devices',
-      },
-      {
-        id: 'openid',
-        icon: 'openid',
-        label: m.cmp_nav_item_openid(),
-        link: '/openid',
-      },
-      {
-        id: 'webhooks',
-        icon: 'webhooks',
-        label: m.cmp_nav_item_webhooks(),
-        link: '/webhooks',
-      },
+      { id: 'activity_log', icon: 'activity', label: m.cmp_nav_item_activity_log(), link: '/activity' },
+      { id: 'siem', icon: 'log', label: 'SIEM', link: '/siem' as LinkProps['to'], testId: 'siem' },
+      { id: 'network_devices', icon: 'devices', label: m.cmp_nav_item_network_devices(), link: '/network-devices' },
+      { id: 'openid', icon: 'openid', label: m.cmp_nav_item_openid(), link: '/openid' },
+      { id: 'webhooks', icon: 'webhooks', label: m.cmp_nav_item_webhooks(), link: '/webhooks' },
     ],
   },
   {
     id: 'admin',
     label: m.cmp_nav_group_admin(),
     items: [
-      {
-        id: 'settings',
-        icon: 'settings',
-        label: m.cmp_nav_item_settings(),
-        link: '/settings',
-      },
-      {
-        id: 'support',
-        icon: 'support',
-        label: m.cmp_nav_item_support(),
-        link: '/support',
-      },
-      {
-        id: 'edges',
-        icon: 'globe',
-        label: m.cmp_nav_item_edges(),
-        link: '/edges',
-      },
+      { id: 'settings', icon: 'settings', label: m.cmp_nav_item_settings(), link: '/settings' },
+      { id: 'support', icon: 'support', label: m.cmp_nav_item_support(), link: '/support' },
+      { id: 'edges', icon: 'globe', label: m.cmp_nav_item_edges(), link: '/edges' },
     ],
   },
 ];
@@ -191,79 +108,34 @@ const navigationConfig: NavGroupProps[] = [
 export const Navigation = () => {
   const isAdmin = useAuth((s) => s.isAdmin);
   const isOpen = useApp((s) => s.navigationOpen);
-
-  const { data: licenseInfo } = useQuery({
-    ...getLicenseInfoQueryOptions,
-    enabled: isAdmin,
-  });
-
-  const { data: rulesCount } = useQuery({
-    ...getRulesCountQueryOptions,
-    enabled: isAdmin,
-  });
-
-  const { data: destinationsCount } = useQuery({
-    ...getDestinationsCountQueryOptions,
-    enabled: isAdmin,
-  });
-
-  const { data: aliasesCount } = useQuery({
-    ...getAliasesCountQueryOptions,
-    enabled: isAdmin,
-  });
-
+  const { data: licenseInfo } = useQuery({ ...getLicenseInfoQueryOptions, enabled: isAdmin });
+  const { data: rulesCount } = useQuery({ ...getRulesCountQueryOptions, enabled: isAdmin });
+  const { data: destinationsCount } = useQuery({ ...getDestinationsCountQueryOptions, enabled: isAdmin });
+  const { data: aliasesCount } = useQuery({ ...getAliasesCountQueryOptions, enabled: isAdmin });
   const videoTutorialSections = useVideoTutorialsSections();
-  const hasTutorialSections = videoTutorialSections.some(
-    (section) => section.videos.length > 0,
-  );
-
+  const hasTutorialSections = videoTutorialSections.some((section) => section.videos.length > 0);
   const navigationGroups = useMemo(() => {
-    const pendingCounts = {
-      rules: rulesCount?.pending,
-      destinations: destinationsCount?.pending,
-      aliases: aliasesCount?.pending,
-    };
-
+    const pendingCounts = { rules: rulesCount?.pending, destinations: destinationsCount?.pending, aliases: aliasesCount?.pending };
     return navigationConfig.map((group) => ({
       ...group,
-      items: group.items.map((item) => ({
-        ...item,
-        pendingCount: pendingCounts[item.id as keyof typeof pendingCounts],
-      })),
+      items: group.items.map((item) => ({ ...item, pendingCount: pendingCounts[item.id as keyof typeof pendingCounts] })),
     }));
   }, [aliasesCount, destinationsCount, rulesCount]);
-
   const rawVersion = useApp((s) => s.appInfo.version);
   const semverVersion = rawVersion ? rawVersion.split('+')[0] : null;
-
   if (!isAdmin || !isOpen) return null;
   return (
     <div className="navigation">
       <div className="top">
         <NavLogo />
         {semverVersion && <span className="version-badge">{semverVersion}</span>}
-        <div className="control">
-          <IconButton
-            icon="hamburger"
-            onClick={() => {
-              useApp.setState({
-                navigationOpen: false,
-              });
-            }}
-          />
-        </div>
+        <div className="control"><IconButton icon="hamburger" onClick={() => useApp.setState({ navigationOpen: false })} /></div>
       </div>
       <div className="groups">
-        {navigationGroups.map((group) => (
-          <NavGroup key={group.id} {...group} licenseInfo={licenseInfo} />
-        ))}
+        {navigationGroups.map((group) => <NavGroup key={group.id} {...group} licenseInfo={licenseInfo} />)}
       </div>
       <div className="bottom">
-        {hasTutorialSections && (
-          <div className="nav-group">
-            <NavTutorialsButton />
-          </div>
-        )}
+        {hasTutorialSections && <div className="nav-group"><NavTutorialsButton /></div>}
       </div>
     </div>
   );
@@ -273,63 +145,25 @@ const NavGroup = ({ items, label, licenseInfo }: NavGroupProps) => {
   const [isOpen, setIsOpen] = useState(true);
   return (
     <div className="nav-group">
-      <div
-        className="track"
-        onClick={() => {
-          setIsOpen((s) => !s);
-        }}
-      >
-        <Icon icon="arrow-small" rotationDirection={isOpen ? 'down' : 'right'} />
-        <p>{label}</p>
+      <div className="track" onClick={() => setIsOpen((s) => !s)}>
+        <Icon icon="arrow-small" rotationDirection={isOpen ? 'down' : 'right'} /><p>{label}</p>
       </div>
-      <Fold open={isOpen}>
-        <div className="items">
-          {items.map((item) => (
-            <NavItem key={item.id} {...item} license={licenseInfo} />
-          ))}
-        </div>
-      </Fold>
+      <Fold open={isOpen}><div className="items">{items.map((item) => <NavItem key={item.id} {...item} license={licenseInfo} />)}</div></Fold>
     </div>
   );
 };
 
-const NavItem = ({
-  icon,
-  link,
-  label,
-  testId,
-  license,
-  licenseTier,
-  licenseFeature,
-  pendingCount,
-}: NavItemProps) => {
-  const showLock = useMemo(
-    () => isNavItemLocked(license as LicenseInfo | null, licenseTier, licenseFeature),
-    [license, licenseTier, licenseFeature],
-  );
-
+const NavItem = ({ icon, link, label, testId, license, licenseTier, licenseFeature, pendingCount }: NavItemProps) => {
+  const showLock = useMemo(() => isNavItemLocked(license as LicenseInfo | null, licenseTier, licenseFeature), [license, licenseTier, licenseFeature]);
   const showPending = !showLock && isPresent(pendingCount) && pendingCount > 0;
   const showRight = showPending || (showLock && isPresent(licenseTier));
-
   return (
     <Link to={link} className="nav-item" data-testid={testId}>
-      <Icon icon={icon} />
-      <span>{label}</span>
-      {showRight && (
-        <div className="right">
-          {showPending && <CounterLabel value={pendingCount} variant="warning" />}
-          {showLock && isPresent(licenseTier) && (
-            <TooltipProvider>
-              <TooltipTrigger>
-                <Icon icon={IconKind.LockClosed} size={16} />
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{`This is ${licenseTier ?? 'Unknown tier'} feature`}</p>
-              </TooltipContent>
-            </TooltipProvider>
-          )}
-        </div>
-      )}
+      <Icon icon={icon} /><span>{label}</span>
+      {showRight && <div className="right">
+        {showPending && <CounterLabel value={pendingCount} variant="warning" />}
+        {showLock && isPresent(licenseTier) && <TooltipProvider><TooltipTrigger><Icon icon={IconKind.LockClosed} size={16} /></TooltipTrigger><TooltipContent><p>{`This is ${licenseTier ?? 'Unknown tier'} feature`}</p></TooltipContent></TooltipProvider>}
+      </div>}
     </Link>
   );
 };
