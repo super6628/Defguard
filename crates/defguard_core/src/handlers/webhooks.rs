@@ -5,7 +5,7 @@ use axum::{
     http::StatusCode,
 };
 use defguard_common::db::Id;
-use reqwest::{Client, Url};
+use reqwest::{Client, Url, redirect::Policy};
 use utoipa::ToSchema;
 
 use super::{ApiErrorResponse, ApiResponse, ApiResult, WebHookData};
@@ -73,7 +73,9 @@ async fn send_test_webhook(
     validate_webhook_url(&webhook.url)?;
 
     let client = Client::builder()
+        .user_agent("defguard-webhook/1")
         .timeout(WEBHOOK_TEST_TIMEOUT)
+        .redirect(Policy::none())
         .build()
         .map_err(|err| {
             error!("Failed to build webhook test client: {err}");
