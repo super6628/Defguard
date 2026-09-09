@@ -3,10 +3,17 @@ type Props = {
   description?: string;
   actionLabel?: string;
   onAction?: () => void;
+  role?: 'status' | 'alert';
 };
 
-export const SiemStatePanel = ({ title, description, actionLabel, onAction }: Props) => (
-  <div className="siem-state" role="status" aria-live="polite">
+export const SiemStatePanel = ({
+  title,
+  description,
+  actionLabel,
+  onAction,
+  role = 'status',
+}: Props) => (
+  <div className="siem-state" role={role} aria-live={role === 'alert' ? 'assertive' : 'polite'}>
     <strong>{title}</strong>
     {description && <p>{description}</p>}
     {actionLabel && onAction && (
