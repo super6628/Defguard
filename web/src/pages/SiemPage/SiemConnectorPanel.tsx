@@ -1,4 +1,5 @@
 import type { ActivityLogStream } from '../../shared/api/types';
+import './connectors.scss';
 
 type Props = {
   streams: ActivityLogStream[];
