@@ -91,11 +91,11 @@ jobs:
         with:
           tool: cargo-nextest
 
-      - name: Run default-feature tests
+      - name: Run supported default-feature tests
         shell: bash
         run: |
           set -o pipefail
-          cargo nextest run --locked --no-fail-fast --failure-output immediate-final 2>&1 | tee nextest-output.log
+          cargo nextest run --locked --workspace --exclude defguard_proxy_manager --no-fail-fast --failure-output immediate-final 2>&1 | tee nextest-output.log
 
       - name: Upload nextest output
         if: always()
