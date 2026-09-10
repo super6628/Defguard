@@ -22,7 +22,11 @@ const formatStreamType = (streamType: ActivityLogStream['stream_type']) => {
 
 export const formatConnectorDestination = (value: string) => {
   try {
-    return new URL(value).origin;
+    const destination = new URL(value);
+    if (destination.protocol !== 'http:' && destination.protocol !== 'https:') {
+      return 'Configured destination';
+    }
+    return destination.origin;
   } catch {
     return 'Configured destination';
   }
