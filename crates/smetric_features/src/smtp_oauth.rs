@@ -36,7 +36,10 @@ struct TokenResponse {
     access_token: Option<String>,
 }
 
-fn secret(value: &Option<SecretStringWrapper>, name: &'static str) -> Result<String, SmtpOAuthError> {
+fn secret(
+    value: &Option<SecretStringWrapper>,
+    name: &'static str,
+) -> Result<String, SmtpOAuthError> {
     value
         .as_ref()
         .map(|value| value.expose_secret().trim().to_owned())
