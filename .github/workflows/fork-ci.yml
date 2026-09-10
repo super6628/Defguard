@@ -95,7 +95,9 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          cargo nextest run --locked --workspace --exclude defguard_proxy_manager --no-fail-fast --failure-output immediate-final 2>&1 | tee nextest-output.log
+          # Integration tests share the same PostgreSQL database and mutate global settings.
+          # Run one test at a time to prevent cross-test state races in fork CI.
+          cargo nextest run --locked --workspace --exclude defguard_proxy_manager -j 1 --no-fail-fast --failure-output immediate-final 2>&1 | tee nextest-output.log
 
       - name: Upload nextest output
         if: always()
