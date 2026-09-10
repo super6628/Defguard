@@ -54,23 +54,21 @@ pub async fn apply(
 
     let mut tx = pool.begin().await?;
 
-    let user_count = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM \"user\" WHERE id = ANY($1)",
-    )
-    .bind(&user_ids)
-    .fetch_one(&mut *tx)
-    .await?;
+    let user_count =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM \"user\" WHERE id = ANY($1)")
+            .bind(&user_ids)
+            .fetch_one(&mut *tx)
+            .await?;
     if user_count != user_ids.len() as i64 {
         return Err(BulkUserError::UnknownUsers);
     }
 
     if let Some(group_ids) = &group_ids {
-        let group_count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM \"group\" WHERE id = ANY($1)",
-        )
-        .bind(group_ids)
-        .fetch_one(&mut *tx)
-        .await?;
+        let group_count =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM \"group\" WHERE id = ANY($1)")
+                .bind(group_ids)
+                .fetch_one(&mut *tx)
+                .await?;
         if group_count != group_ids.len() as i64 {
             return Err(BulkUserError::UnknownGroups);
         }
