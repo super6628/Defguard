@@ -267,7 +267,7 @@ pub async fn get_activity_log_events(
     if !session_info.is_admin {
         query_builder
             .push(" AND username = ")
-            .push_bind(session_info.user.username)
+            .push_bind(session_info.user.username.clone())
             .push(" ");
     }
 
@@ -298,6 +298,12 @@ pub async fn get_activity_log_events(
     // fetch total number of filtered events
     let mut count_query_builder: QueryBuilder<Postgres> =
         QueryBuilder::new("SELECT COUNT(*) FROM activity_log_event WHERE 1=1 ");
+    if !session_info.is_admin {
+        count_query_builder
+            .push(" AND username = ")
+            .push_bind(session_info.user.username)
+            .push(" ");
+    }
     apply_filters(&mut count_query_builder, &filters);
     let total_items: i64 = count_query_builder
         .build_query_scalar()
