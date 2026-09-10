@@ -1,17 +1,48 @@
+import { useEffect, useState } from 'react';
 import { branding } from '../../branding/branding';
 import { ThemeVariable } from '../../defguard-ui/types';
 
+const useActiveTheme = () => {
+  const getTheme = () =>
+    typeof document === 'undefined' ? 'light' : document.documentElement.dataset.theme || 'light';
+  const [theme, setTheme] = useState(getTheme);
+
+  useEffect(() => {
+    const refresh = () => setTheme(getTheme());
+    const observer = new MutationObserver(refresh);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+    window.addEventListener('branding-updated', refresh);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('branding-updated', refresh);
+    };
+  }, []);
+
+  return theme;
+};
+
 export const LoginPageLogo = () => {
-  if (branding.logoUrl) {
+  const theme = useActiveTheme();
+  const customLogo = theme === 'dark' && branding.logoDarkUrl ? branding.logoDarkUrl : branding.logoUrl;
+  if (customLogo) {
     return (
       <img
-        src={branding.logoUrl}
+        src={customLogo}
         alt={branding.productName}
         className="login-logo"
         style={{ maxWidth: 220, maxHeight: 56, objectFit: 'contain' }}
       />
     );
   }
+
+  const shortName = branding.shortName.trim();
+  const productName = branding.productName.trim();
+  const productSuffix = productName.toLowerCase().startsWith(shortName.toLowerCase())
+    ? productName.slice(shortName.length).trim()
+    : productName;
 
   return (
     <svg
@@ -30,11 +61,13 @@ export const LoginPageLogo = () => {
         fill="white"
       />
       <text x="44" y="19" fontFamily="Inter, system-ui, sans-serif" fontSize="16" fontWeight="700" fill="#191A1C">
-        {branding.shortName.toUpperCase()}
+        {(shortName || productName).toUpperCase()}
       </text>
-      <text x="44" y="33" fontFamily="Inter, system-ui, sans-serif" fontSize="12" fontWeight="500" fill="#6B7280">
-        {branding.productName.replace(branding.shortName, '').trim().toUpperCase() || 'SECURE'}
-      </text>
+      {productSuffix && productSuffix.toLowerCase() !== shortName.toLowerCase() && (
+        <text x="44" y="33" fontFamily="Inter, system-ui, sans-serif" fontSize="12" fontWeight="500" fill="#6B7280">
+          {productSuffix.toUpperCase()}
+        </text>
+      )}
     </svg>
   );
 };

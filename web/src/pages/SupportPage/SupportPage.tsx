@@ -3,6 +3,7 @@ import { useSuspenseQuery } from '@tanstack/react-query';
 import { Suspense, useMemo } from 'react';
 import { m } from '../../paraglide/messages';
 import api from '../../shared/api/api';
+import { branding } from '../../shared/branding/branding';
 import {
   ContextualHelpKey,
   ContextualHelpSidebar,
@@ -12,7 +13,6 @@ import { SettingsCard } from '../../shared/components/SettingsCard/SettingsCard'
 import { SettingsHeader } from '../../shared/components/SettingsHeader/SettingsHeader';
 import { SettingsLayout } from '../../shared/components/SettingsLayout/SettingsLayout';
 import { SettingsCardSkeleton } from '../../shared/components/skeleton/SettingsCardSkeleton/SettingsCardSkeleton';
-import { externalLink } from '../../shared/constants';
 import { AppText } from '../../shared/defguard-ui/components/AppText/AppText';
 import { Button } from '../../shared/defguard-ui/components/Button/Button';
 import { ButtonMenu } from '../../shared/defguard-ui/components/ButtonMenu/MenuButton';
@@ -53,6 +53,9 @@ const PageContent = () => {
     () => licenseInfo?.support_type_narrow ?? 'Free',
     [licenseInfo],
   );
+  const documentationUrl = branding.documentationUrl;
+  const supportEmail = branding.supportEmail;
+  const supportUrl = branding.supportUrl;
 
   return (
     <SettingsCard>
@@ -67,14 +70,16 @@ const PageContent = () => {
             <AppText font={TextStyle.TBodySm400} color={ThemeVariable.FgFaded}>
               {m.support_page_docs_desc()}
             </AppText>
-            <Button
-              variant="primary"
-              text={m.support_page_docs_btn()}
-              iconRight="open-in-new-window"
-              onClick={() =>
-                window.open(externalLink.defguard.docs, '_blank', 'noopener,noreferrer')
-              }
-            />
+            {documentationUrl && (
+              <Button
+                variant="primary"
+                text={m.support_page_docs_btn()}
+                iconRight="open-in-new-window"
+                onClick={() =>
+                  window.open(documentationUrl, '_blank', 'noopener,noreferrer')
+                }
+              />
+            )}
           </div>
         </div>
       </MarkedSection>
@@ -93,14 +98,14 @@ const PageContent = () => {
         </AppText>
         <SizedBox height={ThemeSpacing.Xl} />
         <ButtonsGroup>
-          <Button
-            variant="secondary"
-            text={m.support_page_bug_btn_report()}
-            iconLeft="github"
-            onClick={() =>
-              window.open(externalLink.github.bugReport, '_blank', 'noopener,noreferrer')
-            }
-          />
+          {supportUrl && (
+            <Button
+              variant="secondary"
+              text={m.support_page_bug_btn_report()}
+              iconLeft="open-in-new-window"
+              onClick={() => window.open(supportUrl, '_blank', 'noopener,noreferrer')}
+            />
+          )}
           <ButtonMenu
             variant="outlined"
             text={m.support_page_bug_btn_download()}
@@ -117,7 +122,7 @@ const PageContent = () => {
                         type: 'application/json',
                       });
                       const now = new Date().toISOString().replace(/[:.]/g, '-');
-                      downloadFile(blob, `defguard-support-data-${now}`, 'json');
+                      downloadFile(blob, `support-data-${now}`, 'json');
                     },
                   },
                 ],
@@ -126,28 +131,26 @@ const PageContent = () => {
           />
         </ButtonsGroup>
       </MarkedSection>
-      <Divider spacing={ThemeSpacing.Xl2} />
-      <MarkedSection icon="request">
-        <MarkedSectionHeader
-          title={m.support_page_feature_title()}
-          description={m.support_page_feature_desc()}
-        />
-        <ButtonsGroup>
-          <Button
-            variant="secondary"
-            text={m.support_page_feature_btn()}
-            iconLeft="github"
-            onClick={() =>
-              window.open(
-                externalLink.github.featureRequest,
-                '_blank',
-                'noopener,noreferrer',
-              )
-            }
-          />
-        </ButtonsGroup>
-      </MarkedSection>
-      {(supportType === 'Basic' || supportType === 'Direct') && (
+      {supportUrl && (
+        <>
+          <Divider spacing={ThemeSpacing.Xl2} />
+          <MarkedSection icon="request">
+            <MarkedSectionHeader
+              title={m.support_page_feature_title()}
+              description={m.support_page_feature_desc()}
+            />
+            <ButtonsGroup>
+              <Button
+                variant="secondary"
+                text={m.support_page_feature_btn()}
+                iconLeft="open-in-new-window"
+                onClick={() => window.open(supportUrl, '_blank', 'noopener,noreferrer')}
+              />
+            </ButtonsGroup>
+          </MarkedSection>
+        </>
+      )}
+      {(supportType === 'Basic' || supportType === 'Direct') && supportEmail && (
         <>
           <Divider spacing={ThemeSpacing.Xl2} />
           <MarkedSection icon="mail">
@@ -157,12 +160,12 @@ const PageContent = () => {
             <SizedBox height={ThemeSpacing.Xl} />
             <AppText font={TextStyle.TBodySm400} color={ThemeVariable.FgDefault}>
               {m.support_page_email_desc()}{' '}
-              <a href="mailto:support@defguard.net">support@defguard.net</a>
+              <a href={`mailto:${supportEmail}`}>{supportEmail}</a>
             </AppText>
           </MarkedSection>
         </>
       )}
-      {supportType === 'Direct' && (
+      {supportType === 'Direct' && supportUrl && (
         <>
           <Divider spacing={ThemeSpacing.Xl2} />
           <MarkedSection icon="chat">
@@ -175,25 +178,13 @@ const PageContent = () => {
                 variant="outlined"
                 text={m.support_page_assistance_btn_ticket()}
                 iconRight="open-in-new-window"
-                onClick={() =>
-                  window.open(
-                    externalLink.defguard.openTicket + licenseInfo?.customer_id,
-                    '_blank',
-                    'noopener,noreferrer',
-                  )
-                }
+                onClick={() => window.open(supportUrl, '_blank', 'noopener,noreferrer')}
               />
               <Button
                 variant="outlined"
                 text={m.support_page_assistance_btn_call()}
                 iconRight="calendar"
-                onClick={() =>
-                  window.open(
-                    externalLink.defguard.scheduleCall,
-                    '_blank',
-                    'noopener,noreferrer',
-                  )
-                }
+                onClick={() => window.open(supportUrl, '_blank', 'noopener,noreferrer')}
               />
             </ButtonsGroup>
           </MarkedSection>

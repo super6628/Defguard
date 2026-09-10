@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
 import { m } from '../../../../paraglide/messages';
 import api from '../../../../shared/api/api';
+import { branding } from '../../../../shared/branding/branding';
 import { Controls } from '../../../../shared/components/Controls/Controls';
 import { LoadingStep } from '../../../../shared/components/LoadingStep/LoadingStep';
 import { WizardCard } from '../../../../shared/components/wizard/WizardCard/WizardCard';
@@ -61,9 +62,6 @@ export const AutoAdoptionExternalUrlSslConfigStep = () => {
   const sslType = useAutoAdoptionSetupWizardStore((s) => s.external_ssl_type);
   const certInfo = useAutoAdoptionSetupWizardStore((s) => s.external_ssl_cert_info);
 
-  // If ssl_type is not set (e.g. fresh browser session), redirect back so the
-  // user can re-submit the settings step and repopulate the store.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: only run on mount
   useEffect(() => {
     if (sslType === null) {
       setActiveStep(AutoAdoptionSetupStep.ExternalUrlSettings);
@@ -98,7 +96,6 @@ export const AutoAdoptionExternalUrlSslConfigStep = () => {
     { onMessage: handleAcmeEvent },
   );
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: only run on mount
   useEffect(() => {
     if (sslType !== 'lets_encrypt') return;
     setAcmeState(defaultAcmeState);
@@ -157,7 +154,7 @@ export const AutoAdoptionExternalUrlSslConfigStep = () => {
           </div>
           <Divider />
           <ul className="ssl-port-list">
-            <li>{m.initial_setup_auto_adoption_external_url_ssl_no_ssl_port()}</li>
+            <li>Edge service via TCP port 8080</li>
           </ul>
         </div>
       );
@@ -239,7 +236,9 @@ export const AutoAdoptionExternalUrlSslConfigStep = () => {
           <div className="ssl-result-validated-card-content gap-xl">
             <div className="ssl-result-card-header">
               <h3>{m.initial_setup_auto_adoption_external_url_ssl_ca_title()}</h3>
-              <p>{m.initial_setup_auto_adoption_external_url_ssl_ca_description()}</p>
+              <p>
+                {`The Edge service is secured with ${branding.productName}'s internal CA. Download the CA root certificate and install it on systems that need to trust this endpoint.`}
+              </p>
             </div>
             <div>
               <Button

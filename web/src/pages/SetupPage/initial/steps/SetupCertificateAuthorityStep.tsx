@@ -4,6 +4,7 @@ import z from 'zod';
 import { useShallow } from 'zustand/react/shallow';
 import { m } from '../../../../paraglide/messages';
 import api from '../../../../shared/api/api';
+import { branding } from '../../../../shared/branding/branding';
 import { Controls } from '../../../../shared/components/Controls/Controls';
 import { WizardCard } from '../../../../shared/components/wizard/WizardCard/WizardCard';
 import { Button } from '../../../../shared/defguard-ui/components/Button/Button';
@@ -117,7 +118,7 @@ export const SetupCertificateAuthorityStep = () => {
                   label={m.initial_setup_ca_label_common_name()}
                   helper={m.initial_setup_ca_helper_common_name()}
                   type="text"
-                  placeholder={m.initial_setup_ca_placeholder_common_name()}
+                  placeholder={`${branding.productName} Certificate Authority`}
                 />
               )}
             </form.AppField>

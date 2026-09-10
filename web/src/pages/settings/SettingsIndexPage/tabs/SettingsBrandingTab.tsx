@@ -20,6 +20,7 @@ const fields: Array<{ key: keyof BrandingConfig; label: string; placeholder?: st
   { key: 'logoUrl', label: 'Main / login logo URL', placeholder: '/svg/logo.svg' },
   { key: 'navLogoUrl', label: 'Navigation logo URL', placeholder: '/svg/nav-logo.svg' },
   { key: 'logoDarkUrl', label: 'Dark logo URL', placeholder: '/branding/logo-dark.svg' },
+  { key: 'loginImageUrl', label: 'Login illustration URL', placeholder: '/branding/login.png' },
   { key: 'faviconUrl', label: 'Favicon URL', placeholder: '/branding/favicon.ico' },
   { key: 'primaryColor', label: 'Primary color', placeholder: '#3961DB' },
   { key: 'loginTitle', label: 'Login title' },
@@ -123,6 +124,7 @@ export const SettingsBrandingTab = () => {
         </div>
         <aside style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 24, alignSelf: 'start' }}>
           <div style={{ fontSize: 12, textTransform: 'uppercase', opacity: 0.65, marginBottom: 16 }}>Live preview</div>
+          {form.loginImageUrl && <img src={form.loginImageUrl} alt="" style={{ width: '100%', maxHeight: 180, objectFit: 'cover', borderRadius: 8, marginBottom: 20 }} />}
           {form.logoUrl ? <img src={form.logoUrl} alt={form.productName} style={{ maxWidth: '100%', maxHeight: 60 }} /> : <div style={{ fontSize: 22, fontWeight: 700 }}>{form.shortName || form.companyName}</div>}
           <h3 style={{ marginTop: 28 }}>{form.loginTitle || `Welcome to ${form.productName}`}</h3>
           <p>{form.loginSubtitle || 'Secure remote network access'}</p>

@@ -5,7 +5,12 @@ use defguard_common::db::{
     Id,
     models::{
         AuthenticationKey, Device, MFAMethod, Settings, User, WebAuthn, WireguardNetwork,
-        gateway::Gateway, group::Group, oauth2client::OAuth2Client, proxy::Proxy,
+        gateway::Gateway,
+        group::Group,
+        mfa_flow::{LocationMfaFlowAssignmentSnapshot, MfaFlowSnapshot},
+        oauth2client::OAuth2Client,
+        proxy::Proxy,
+        vpn_client_mfa_session::MfaAttribution,
     },
 };
 use defguard_proto::{client_types::MfaMethod, enterprise::posture::DevicePostureData};
@@ -364,6 +369,21 @@ pub enum ApiEventType {
         location: WireguardNetwork<Id>,
         posture_ids: Vec<Id>,
     },
+    MfaFlowCreated {
+        snapshot: MfaFlowSnapshot,
+    },
+    MfaFlowUpdated {
+        before: MfaFlowSnapshot,
+        after: MfaFlowSnapshot,
+    },
+    MfaFlowDeleted {
+        snapshot: MfaFlowSnapshot,
+    },
+    LocationMfaFlowsAssigned {
+        location_id: Id,
+        location_name: String,
+        assignments: Vec<LocationMfaFlowAssignmentSnapshot>,
+    },
 }
 
 /// Events from Web API
@@ -442,7 +462,8 @@ pub enum DesktopClientMfaEvent {
     Success {
         device: Device<Id>,
         location: WireguardNetwork<Id>,
-        method: ClientMFAMethod,
+        /// The complete challenge-and-response record and the governing flow's title.
+        attribution: MfaAttribution,
         /// Name of the device used to approve the login when the mobile approve
         /// MFA method is used. `None` for all other methods.
         mobile_auth_device_name: Option<String>,
@@ -469,10 +490,18 @@ pub enum DesktopClientMfaEvent {
         device_posture_data: Option<DevicePostureData>,
         failed_checks: Vec<String>,
     },
+    /// An authorized VPN session was replaced by a new authorization.
     SessionSuperseded {
         device: Device<Id>,
         location: WireguardNetwork<Id>,
         is_mfa_session: bool,
+    },
+    /// An in-progress MFA login was replaced by a new login attempt for the same device and
+    /// location. Distinct from [`Self::SessionSuperseded`]: nothing was authorized yet, so no
+    /// VPN session existed to supersede.
+    MfaLoginSuperseded {
+        device: Device<Id>,
+        location: WireguardNetwork<Id>,
     },
 }
 

@@ -362,8 +362,14 @@ async fn main() -> Result<(), anyhow::Error> {
     Gateway::mark_all_disconnected(&pool).await?;
     debug!("Gateway connection states reset");
 
+    let (siem_shutdown_tx, siem_shutdown_rx) = tokio::sync::watch::channel(false);
+    let siem_dispatcher = defguard_core::smetric_acl::security_event::runtime::spawn_if_configured(
+        pool.clone(),
+        siem_shutdown_rx,
+    )?;
+
     // run services
-    tokio::select! {
+    let result = tokio::select! {
         res = proxy_manager.run() => bail!("ProxyManager returned early: {res:?}"),
         res = gateway_manager.run() => bail!("GatewayManager returned early: {res:?}"),
         res = run_grpc_server(
@@ -420,5 +426,14 @@ async fn main() -> Result<(), anyhow::Error> {
             gateway_tx
         ) => bail!("VPN client session manager returned early: {res:?}"),
         _ = ctrl_c() => Ok(()),
+    };
+
+    let _ = siem_shutdown_tx.send(true);
+    if let Some(handle) = siem_dispatcher
+        && let Err(error) = handle.await
+    {
+        warn!("S-Metric SIEM dispatcher task failed during shutdown: {error}");
     }
+
+    result
 }

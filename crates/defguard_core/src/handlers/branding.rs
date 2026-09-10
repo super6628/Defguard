@@ -1,17 +1,9 @@
-use axum::{
-    Extension, Json,
-    extract::State,
-    http::StatusCode,
-};
+use axum::{Extension, Json, extract::State, http::StatusCode};
 use defguard_common::db::models::{Settings, WhiteLabelBranding};
 use sqlx::PgPool;
 
 use super::{ApiResponse, ApiResult};
-use crate::{
-    AppState,
-    auth::AdminRole,
-    error::WebError,
-};
+use crate::{AppState, auth::AdminRole, error::WebError};
 
 fn valid_optional_url(value: &str) -> bool {
     value.is_empty()
@@ -49,7 +41,9 @@ fn validate_branding(branding: &WhiteLabelBranding) -> Result<(), WebError> {
         return Err(WebError::BadRequest("Short name cannot be empty".into()));
     }
     if branding.copyright_name.trim().is_empty() {
-        return Err(WebError::BadRequest("Copyright name cannot be empty".into()));
+        return Err(WebError::BadRequest(
+            "Copyright name cannot be empty".into(),
+        ));
     }
     if !valid_optional_email(&branding.support_email) {
         return Err(WebError::BadRequest("Support email is invalid".into()));
@@ -60,6 +54,7 @@ fn validate_branding(branding: &WhiteLabelBranding) -> Result<(), WebError> {
         ("Logo URL", branding.logo_url.as_str()),
         ("Navigation logo URL", branding.nav_logo_url.as_str()),
         ("Dark logo URL", branding.logo_dark_url.as_str()),
+        ("Login image URL", branding.login_image_url.as_str()),
         ("Favicon URL", branding.favicon_url.as_str()),
     ] {
         if !valid_optional_url(value) {
@@ -102,21 +97,15 @@ pub async fn update_branding(
     } else {
         branding.nav_logo_url.clone()
     };
-    defguard_common::db::models::settings::update_current_settings(
-        &mut *transaction,
-        settings,
-    )
-    .await?;
+    defguard_common::db::models::settings::update_current_settings(&mut *transaction, settings)
+        .await?;
     transaction.commit().await?;
 
     Ok(ApiResponse::json(branding, StatusCode::OK))
 }
 
 /// Reset white-label branding to this fork's deployment defaults.
-pub async fn reset_branding(
-    _admin: AdminRole,
-    State(appstate): State<AppState>,
-) -> ApiResult {
+pub async fn reset_branding(_admin: AdminRole, State(appstate): State<AppState>) -> ApiResult {
     let branding = WhiteLabelBranding::default();
 
     let mut transaction = appstate.pool.begin().await?;
@@ -126,11 +115,8 @@ pub async fn reset_branding(
     settings.instance_name = branding.product_name.clone();
     settings.main_logo_url = branding.logo_url.clone();
     settings.nav_logo_url = branding.nav_logo_url.clone();
-    defguard_common::db::models::settings::update_current_settings(
-        &mut *transaction,
-        settings,
-    )
-    .await?;
+    defguard_common::db::models::settings::update_current_settings(&mut *transaction, settings)
+        .await?;
     transaction.commit().await?;
 
     Ok(ApiResponse::json(branding, StatusCode::OK))

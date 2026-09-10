@@ -41,7 +41,14 @@ pub struct DeviceConfig {
     pub pubkey: String,
     pub dns: Option<String>,
     pub keepalive_interval: i32,
-    pub location_mfa_mode: LocationMfaMode,
+    /// Whether the location requires MFA. This is the authoritative flag, read from the stored
+    /// `wireguard_network.mfa_enabled` column.
+    pub mfa_enabled: bool,
+    /// Legacy single-factor mode, derived in memory for backward-compatible locations only.
+    /// `None` when the location's flow configuration cannot be expressed as a legacy mode, which
+    /// includes every location that has no flows at all. Consumers deciding whether a location
+    /// requires MFA must use `mfa_enabled`, not the absence of this field.
+    pub location_mfa_mode: Option<LocationMfaMode>,
     pub service_location_mode: ServiceLocationMode,
     pub posture_check_required: bool,
 }
@@ -179,11 +186,11 @@ impl DeviceInfo {
             "SELECT wnd.wireguard_network_id network_id, \
                 wnd.wireguard_ips \"device_wireguard_ips: Vec<IpAddr>\", \
                 CASE \
-                    WHEN n.location_mfa_mode = 'disabled'::location_mfa_mode THEN NULL::text \
+                    WHEN NOT n.mfa_enabled THEN NULL::text \
                     ELSE active_session.preshared_key \
                 END \"preshared_key?\", \
                 CASE \
-                    WHEN n.location_mfa_mode = 'disabled'::location_mfa_mode THEN TRUE \
+                    WHEN NOT n.mfa_enabled THEN TRUE \
                     ELSE active_session.preshared_key IS NOT NULL \
                 END \"is_authorized!\" \
             FROM wireguard_network_device wnd \
@@ -229,7 +236,7 @@ pub struct UserDeviceNetworkInfo {
     pub last_connected_ip: Option<String>,
     pub last_connected_at: Option<NaiveDateTime>,
     pub is_active: bool,
-    pub location_mfa_mode: LocationMfaMode,
+    pub mfa_enabled: bool,
 }
 
 impl UserDevice {
@@ -241,7 +248,7 @@ impl UserDevice {
 				latest_successful_stats.endpoint \"device_endpoint?\", \
 	            latest_successful_session.connected_at \"last_connected_at?\", \
 	            latest_successful_session.state \"state?: VpnClientSessionState\", \
-                n.location_mfa_mode \"location_mfa_mode: LocationMfaMode\" \
+                n.mfa_enabled \
             FROM wireguard_network_device wnd \
             JOIN wireguard_network n ON n.id = wnd.wireguard_network_id \
             LEFT JOIN LATERAL ( \
@@ -296,7 +303,7 @@ impl UserDevice {
                     last_connected_ip: device_ip,
                     last_connected_at: r.last_connected_at,
                     is_active,
-                    location_mfa_mode: r.location_mfa_mode,
+                    mfa_enabled: r.mfa_enabled,
                 }
             })
             .collect::<Vec<_>>();
@@ -337,7 +344,7 @@ impl WireguardNetworkDevice {
     where
         E: PgExecutor<'e>,
     {
-        if !network.mfa_enabled() {
+        if !network.mfa_enabled {
             return Ok(None);
         }
 
@@ -350,7 +357,7 @@ impl WireguardNetworkDevice {
         network: &WireguardNetwork<Id>,
         active_session: Option<&VpnClientSession<Id>>,
     ) -> DeviceNetworkInfo {
-        let (preshared_key, is_authorized) = if network.mfa_enabled() {
+        let (preshared_key, is_authorized) = if network.mfa_enabled {
             let preshared_key = active_session.and_then(|session| session.preshared_key.clone());
             let is_authorized = preshared_key.is_some();
             (preshared_key, is_authorized)
@@ -981,10 +988,7 @@ mod test {
     use crate::{
         csv::AsCsv,
         db::{
-            models::{
-                gateway::Gateway, vpn_client_session::VpnClientMfaMethod,
-                vpn_session_stats::VpnSessionStats,
-            },
+            models::{gateway::Gateway, vpn_session_stats::VpnSessionStats},
             setup_pool,
         },
     };
@@ -1366,7 +1370,7 @@ mod test {
             false,
             false,
             false,
-            LocationMfaMode::Internal,
+            true, // mfa_enabled
             ServiceLocationMode::Disabled,
         )
         .try_set_address("10.1.1.1/24")
@@ -1388,7 +1392,7 @@ mod test {
             created_at: Utc::now().naive_utc(),
             connected_at: None,
             disconnected_at: None,
-            mfa_method: Some(VpnClientMfaMethod::Totp),
+            is_mfa_session: true,
             state: VpnClientSessionState::New,
             preshared_key: None,
         };
@@ -1417,7 +1421,7 @@ mod test {
             false,
             false,
             false,
-            LocationMfaMode::Internal,
+            true, // mfa_enabled
             ServiceLocationMode::Disabled,
         )
         .try_set_address("10.1.1.1/24")
@@ -1439,7 +1443,7 @@ mod test {
             created_at: Utc::now().naive_utc(),
             connected_at: Some(Utc::now().naive_utc()),
             disconnected_at: None,
-            mfa_method: Some(VpnClientMfaMethod::Totp),
+            is_mfa_session: true,
             state: VpnClientSessionState::Connected,
             preshared_key: Some("runtime-session-psk".into()),
         };
@@ -1495,7 +1499,7 @@ mod test {
             false,
             false,
             false,
-            LocationMfaMode::Internal,
+            true, // mfa_enabled
             ServiceLocationMode::Disabled,
         )
         .try_set_address("10.1.1.1/24")
@@ -1509,13 +1513,7 @@ mod test {
         );
         wireguard_network_device.insert(&pool).await.unwrap();
 
-        let session = VpnClientSession::new(
-            network.id,
-            user.id,
-            device.id,
-            None,
-            Some(VpnClientMfaMethod::Totp),
-        );
+        let session = VpnClientSession::new(network.id, user.id, device.id, None, true);
         session.save(&pool).await.unwrap();
 
         let device_info = DeviceInfo::from_device(&pool, device).await.unwrap();
@@ -1570,7 +1568,7 @@ mod test {
             false,
             false,
             false,
-            LocationMfaMode::Internal,
+            true, // mfa_enabled
             ServiceLocationMode::Disabled,
         )
         .try_set_address("10.1.1.1/24")
@@ -1591,7 +1589,7 @@ mod test {
             user.id,
             device.id,
             Some(Utc::now().naive_utc()),
-            Some(VpnClientMfaMethod::Totp),
+            true,
         );
         session.preshared_key = Some("device-info-session-psk".into());
         session.save(&pool).await.unwrap();
@@ -1651,7 +1649,7 @@ mod test {
             false,
             false,
             false,
-            LocationMfaMode::Disabled,
+            false, // mfa_enabled
             ServiceLocationMode::Disabled,
         )
         .try_set_address("10.1.1.1/24")
@@ -1667,7 +1665,7 @@ mod test {
         );
         wireguard_network_device.insert(&pool).await.unwrap();
 
-        let mut session = VpnClientSession::new(network.id, user.id, device.id, None, None);
+        let mut session = VpnClientSession::new(network.id, user.id, device.id, None, false);
         session.preshared_key = Some("legacy-session-psk".into());
         session.save(&pool).await.unwrap();
 
@@ -1756,7 +1754,7 @@ mod test {
             user.id,
             device.id,
             Some(last_successful_connection),
-            None,
+            false,
         );
         connected_session.created_at = last_successful_connection;
         let connected_session = connected_session.save(&pool).await.unwrap();
@@ -1777,7 +1775,7 @@ mod test {
         .unwrap();
 
         let mut disconnected_session =
-            VpnClientSession::new(network.id, user.id, device.id, None, None);
+            VpnClientSession::new(network.id, user.id, device.id, None, false);
         disconnected_session.created_at = newer_session_created_at;
         disconnected_session.disconnected_at = Some(newer_session_created_at);
         disconnected_session.state = VpnClientSessionState::Disconnected;
@@ -1882,14 +1880,14 @@ mod test {
             user.id,
             device.id,
             Some(last_successful_connection),
-            None,
+            false,
         );
         connected_session.created_at = last_successful_connection;
         connected_session.disconnected_at = Some(disconnected_at);
         connected_session.state = VpnClientSessionState::Disconnected;
         connected_session.save(&pool).await.unwrap();
 
-        let mut new_session = VpnClientSession::new(network.id, user.id, device.id, None, None);
+        let mut new_session = VpnClientSession::new(network.id, user.id, device.id, None, false);
         new_session.created_at = newer_session_created_at;
         new_session.save(&pool).await.unwrap();
 
@@ -1972,7 +1970,7 @@ mod test {
             .expect("expected valid time");
 
         let session =
-            VpnClientSession::new(network.id, user.id, device.id, Some(connected_at), None)
+            VpnClientSession::new(network.id, user.id, device.id, Some(connected_at), false)
                 .save(&pool)
                 .await
                 .unwrap();
@@ -2069,7 +2067,7 @@ mod test {
             .expect("expected valid time");
 
         let mut attempted_session =
-            VpnClientSession::new(network.id, user.id, device.id, None, None);
+            VpnClientSession::new(network.id, user.id, device.id, None, false);
         attempted_session.created_at = attempted_at;
         let attempted_session = attempted_session.save(&pool).await.unwrap();
 
@@ -2155,7 +2153,7 @@ mod test {
             .and_hms_opt(3, 4, 5)
             .expect("expected valid time");
 
-        VpnClientSession::new(network.id, user.id, device.id, Some(connected_at), None)
+        VpnClientSession::new(network.id, user.id, device.id, Some(connected_at), false)
             .save(&pool)
             .await
             .unwrap();
@@ -2237,7 +2235,7 @@ mod test {
             .expect("expected valid time");
 
         let session =
-            VpnClientSession::new(network.id, user.id, device.id, Some(connected_at), None)
+            VpnClientSession::new(network.id, user.id, device.id, Some(connected_at), false)
                 .save(&pool)
                 .await
                 .unwrap();

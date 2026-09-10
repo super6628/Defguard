@@ -3,6 +3,7 @@ import { type ReactNode, useMemo } from 'react';
 import { m } from '../../../paraglide/messages';
 import api from '../../../shared/api/api';
 import type { SetupAutoAdoptionResponse } from '../../../shared/api/types';
+import { branding } from '../../../shared/branding/branding';
 import { Controls } from '../../../shared/components/Controls/Controls';
 import type { WizardPageStep } from '../../../shared/components/wizard/types';
 import { WizardPage } from '../../../shared/components/wizard/WizardPage/WizardPage';
@@ -49,6 +50,9 @@ type AutoAdoptionWelcomeContentProps = {
 const AutoAdoptionFailedWelcomeContent = ({
   results,
 }: AutoAdoptionWelcomeContentProps) => {
+  const supportEmail = branding.supportEmail;
+  const supportUrl = branding.supportUrl;
+
   return (
     <div className="auto-adoption-welcome-content">
       <Divider spacing={ThemeSpacing.Xl2} />
@@ -110,21 +114,31 @@ const AutoAdoptionFailedWelcomeContent = ({
           <Icon icon="support" />
           <p>
             {m.initial_setup_auto_adoption_failed_support_business_prefix()}{' '}
-            <a href="mailto:support@defguard.net">
-              {m.initial_setup_auto_adoption_failed_support_business_link()}
-            </a>{' '}
+            {supportEmail ? (
+              <a href={`mailto:${supportEmail}`}>
+                {m.initial_setup_auto_adoption_failed_support_business_link()}
+              </a>
+            ) : supportUrl ? (
+              <ExternalLink href={supportUrl}>
+                {m.initial_setup_auto_adoption_failed_support_business_link()}
+              </ExternalLink>
+            ) : (
+              m.initial_setup_auto_adoption_failed_support_business_link()
+            )}{' '}
             {m.initial_setup_auto_adoption_failed_support_business_suffix()}
           </p>
         </div>
-        <div className="support-row">
-          <Icon icon="config" />
-          <p>
-            {m.initial_setup_auto_adoption_failed_support_community_prefix()}{' '}
-            <ExternalLink href="https://github.com/DefGuard/defguard/discussions">
-              {m.initial_setup_auto_adoption_failed_support_community_link()}
-            </ExternalLink>
-          </p>
-        </div>
+        {supportUrl && (
+          <div className="support-row">
+            <Icon icon="config" />
+            <p>
+              {m.initial_setup_auto_adoption_failed_support_community_prefix()}{' '}
+              <ExternalLink href={supportUrl}>
+                {m.initial_setup_auto_adoption_failed_support_community_link()}
+              </ExternalLink>
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -141,11 +155,14 @@ const AutoAdoptionSuccessWelcomeContent = ({
     <Divider spacing={ThemeSpacing.Xl2} />
     <p>{m.initial_setup_auto_adoption_success_guide_intro()}</p>
     <SizedBox height={ThemeSpacing.Md} />
-    <p>{m.initial_setup_auto_adoption_success_guide_description()}</p>
+    <p>
+      Learn the basic concepts as you go. Each setup screen can include documentation and
+      short explanatory videos when available.
+    </p>
     <SizedBox height={ThemeSpacing.Xl} />
     <Controls>
       <Button
-        text={m.initial_setup_auto_adoption_success_start_button()}
+        text={`Start ${branding.productName} configuration`}
         onClick={() => {
           onStartFlow();
         }}
@@ -187,8 +204,7 @@ export const AutoAdoptionSetupPage = () => {
         id: AutoAdoptionSetupStep.InternalUrlSettings,
         order: 2,
         label: m.initial_setup_auto_adoption_step_internal_url_settings_label(),
-        description:
-          m.initial_setup_auto_adoption_step_internal_url_settings_description(),
+        description: `Configure ${branding.productName} Control Plane (core) access`,
       },
       internalUrlSslConfig: {
         id: AutoAdoptionSetupStep.InternalUrlSslConfig,
@@ -259,13 +275,13 @@ export const AutoAdoptionSetupPage = () => {
     <WizardPage
       id="auto-adoption-setup-wizard"
       activeStep={activeStep}
-      subtitle={m.initial_setup_auto_adoption_wizard_subtitle()}
-      title={m.initial_setup_auto_adoption_wizard_title()}
+      subtitle={`Complete the remaining steps to fully configure ${branding.productName}.`}
+      title={`${branding.productName} configuration`}
       steps={stepsConfig}
       videoGuidePlacementKey="autoAdoptionWizard"
       isOnWelcomePage={!isAutoAdoptionFlowStarted}
       welcomePageConfig={{
-        title: m.initial_setup_auto_adoption_welcome_title(),
+        title={`Welcome to ${branding.productName}.`}
         subtitle,
         content:
           hasFailedResult && results ? (

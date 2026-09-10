@@ -93,7 +93,9 @@ pub async fn resolve_snat_bindings(
                 .map(|ip| IpAddress::Ip(ip.to_string()))
                 .collect(),
             public_ip: public_ip.to_string(),
-            comment: Some(format!("S-Metric preserved user {user_id} SNAT binding {binding_id}")),
+            comment: Some(format!(
+                "S-Metric preserved user {user_id} SNAT binding {binding_id}"
+            )),
         });
     }
     Ok(result)

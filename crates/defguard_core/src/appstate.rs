@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex, RwLock, atomic::AtomicBool};
+use std::{
+    sync::{Arc, Mutex, RwLock, atomic::AtomicBool},
+    time::Duration,
+};
 
 use axum::extract::FromRef;
 use axum_extra::extract::cookie::Key;
@@ -24,6 +27,7 @@ use crate::{
 };
 
 const X_DEFGUARD_EVENT: &str = "x-defguard-event";
+const WEBHOOK_DELIVERY_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone)]
 pub struct AppState {
@@ -53,12 +57,16 @@ impl AppState {
 
     /// Handle webhook events
     async fn handle_triggers(pool: PgPool, mut rx: UnboundedReceiver<AppEvent>) {
-        let reqwest_client = Client::builder().user_agent("reqwest").build().unwrap();
+        let reqwest_client = Client::builder()
+            .user_agent("defguard-webhook/1")
+            .timeout(WEBHOOK_DELIVERY_TIMEOUT)
+            .build()
+            .expect("Failed to build webhook HTTP client");
         while let Some(msg) = rx.recv().await {
             debug!("WebHook triggered");
             debug!("Retrieving webhooks");
             if let Ok(webhooks) = WebHook::all_enabled(&pool, &msg).await {
-                debug!("Found webhooks: {webhooks:?}");
+                debug!("Found {} enabled webhook(s)", webhooks.len());
                 let (payload, event) = match msg {
                     AppEvent::UserCreated(user) => (json!(user), "user_created"),
                     AppEvent::UserModified(user) => (json!(user), "user_modified"),
@@ -68,19 +76,27 @@ impl AppState {
                     AppEvent::HWKeyProvision(data) => (json!(data), "user_keys"),
                 };
                 for webhook in webhooks {
-                    match reqwest_client
+                    let mut request = reqwest_client
                         .post(&webhook.url)
-                        .bearer_auth(&webhook.token)
                         .header(X_DEFGUARD_EVENT, event)
-                        .json(&payload)
-                        .send()
-                        .await
-                    {
-                        Ok(res) => {
-                            info!("Trigger sent to {}, status {}", webhook.url, res.status());
+                        .json(&payload);
+                    if !webhook.token.trim().is_empty() {
+                        request = request.bearer_auth(&webhook.token);
+                    }
+
+                    match request.send().await {
+                        Ok(res) if res.status().is_success() => {
+                            info!("Webhook {} delivered, status {}", webhook.id, res.status());
                         }
-                        Err(err) => {
-                            error!("Error sending trigger to {}: {err}", webhook.url);
+                        Ok(res) => {
+                            warn!(
+                                "Webhook {} returned non-success status {}",
+                                webhook.id,
+                                res.status()
+                            );
+                        }
+                        Err(_) => {
+                            error!("Webhook {} delivery failed", webhook.id);
                         }
                     }
                 }

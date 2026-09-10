@@ -10,9 +10,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use crate::{
-    appstate::AppState,
-    auth::AdminRole,
-    grpc::smetric_config_sync::notify_config_changed,
+    appstate::AppState, auth::AdminRole, grpc::smetric_config_sync::notify_config_changed,
 };
 
 use super::{
@@ -105,7 +103,11 @@ impl IntoResponse for DeviceGroupError {
             | Self::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Gateway(_) => StatusCode::BAD_REQUEST,
         };
-        (status, Json(serde_json::json!({ "error": self.to_string() }))).into_response()
+        (
+            status,
+            Json(serde_json::json!({ "error": self.to_string() })),
+        )
+            .into_response()
     }
 }
 
@@ -192,11 +194,11 @@ pub async fn update(
     .map_err(|error| map_write_error(error, &name))?
     .ok_or(DeviceGroupError::GroupNotFound(group_id))?;
 
-    if old.enabled != row.3 {
-        if let Err(error) = redeploy_published_policies_for_group(&state, &row.1).await {
-            restore_group(&state.pool, &old).await?;
-            return Err(error);
-        }
+    if old.enabled != row.3
+        && let Err(error) = redeploy_published_policies_for_group(&state, &row.1).await
+    {
+        restore_group(&state.pool, &old).await?;
+        return Err(error);
     }
 
     notify_config_changed(format!("smetric_acl:device_group:{group_id}:updated"));
@@ -442,10 +444,10 @@ fn normalized_name(value: &str) -> Result<String, DeviceGroupError> {
 }
 
 fn map_write_error(error: sqlx::Error, name: &str) -> DeviceGroupError {
-    if let sqlx::Error::Database(database) = &error {
-        if database.is_unique_violation() {
-            return DeviceGroupError::DuplicateName(name.to_owned());
-        }
+    if let sqlx::Error::Database(database) = &error
+        && database.is_unique_violation()
+    {
+        return DeviceGroupError::DuplicateName(name.to_owned());
     }
     DeviceGroupError::Database(error)
 }

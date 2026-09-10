@@ -33,9 +33,7 @@ use crate::{
         has_enterprise_access, is_business_license_active,
     },
     grpc::{
-        interceptor::JwtInterceptor,
-        smetric_config_sync::ConfigSyncServer,
-        worker::WorkerServer,
+        interceptor::JwtInterceptor, smetric_config_sync::ConfigSyncServer, worker::WorkerServer,
     },
 };
 

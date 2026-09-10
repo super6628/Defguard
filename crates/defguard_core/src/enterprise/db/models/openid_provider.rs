@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+// Kept compiled for upstream enterprise/OIDC compatibility while S-Metric
+// routes use the independent provider implementation.
 use std::fmt;
 
 use defguard_common::db::{Id, NoId};

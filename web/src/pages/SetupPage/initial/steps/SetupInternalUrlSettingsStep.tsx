@@ -5,6 +5,7 @@ import { m } from '../../../../paraglide/messages';
 import api from '../../../../shared/api/api';
 import { getApiErrorMessage } from '../../../../shared/api/apiErrorMessages';
 import type { ApiError } from '../../../../shared/api/types';
+import { branding } from '../../../../shared/branding/branding';
 import { Controls } from '../../../../shared/components/Controls/Controls';
 import { WizardCard } from '../../../../shared/components/wizard/WizardCard/WizardCard';
 import { Button } from '../../../../shared/defguard-ui/components/Button/Button';
@@ -34,15 +35,12 @@ export const SetupInternalUrlSettingsStep = () => {
   const formSchema = z.object({
     defguard_url: z
       .string({
-        error: m.initial_setup_general_config_error_defguard_url_required(),
+        error: `${branding.productName} URL is required`,
       })
       .overwrite(ensureUrlScheme)
-      .min(1, m.initial_setup_general_config_error_defguard_url_required())
+      .min(1, `${branding.productName} URL is required`)
       .url(m.initial_setup_general_config_error_invalid_url())
-      .refine(
-        isValidDefguardUrl,
-        m.initial_setup_general_config_error_defguard_url_invalid_host(),
-      ),
+      .refine(isValidDefguardUrl, `${branding.productName} URL must use a hostname, not an IP address`),
     ssl_type: z.custom<InternalSslType>(),
     cert_pem_file: z.custom<File | null>().nullable(),
     key_pem_file: z.custom<File | null>().nullable(),
@@ -113,13 +111,17 @@ export const SetupInternalUrlSettingsStep = () => {
         }}
       >
         <form.AppForm>
-          <p>{m.initial_setup_auto_adoption_internal_url_settings_url_description()}</p>
+          <p>
+            Enter the URL for {branding.productName}, including the port if needed. It must be
+            reachable on your internal or VPN network and should not be exposed directly to the
+            internet. Once setup is complete, you'll be redirected there automatically.
+          </p>
           <SizedBox height={ThemeSpacing.Xl} />
           <form.AppField name="defguard_url">
             {(field) => (
               <field.FormInput
                 required
-                label={m.initial_setup_general_config_label_defguard_url()}
+                label={`${branding.productName} URL`}
                 helper={m.initial_setup_general_config_helper_defguard_url()}
                 type="text"
               />
@@ -142,12 +144,13 @@ export const SetupInternalUrlSettingsStep = () => {
                 <SizedBox height={ThemeSpacing.Md} />
                 <div className="ssl-option-row">
                   <Radio
-                    text={m.initial_setup_auto_adoption_internal_url_settings_ssl_option_defguard_ca()}
+                    text="Generate certificates using the internal CA"
                     active={sslType === 'defguard_ca'}
                     onClick={() => form.setFieldValue('ssl_type', 'defguard_ca')}
                   />
                   <Helper>
-                    {m.initial_setup_auto_adoption_internal_url_settings_ssl_option_defguard_ca_help()}
+                    {branding.productName} will generate and manage a certificate signed by its
+                    internal CA.
                   </Helper>
                 </div>
                 <SizedBox height={ThemeSpacing.Md} />

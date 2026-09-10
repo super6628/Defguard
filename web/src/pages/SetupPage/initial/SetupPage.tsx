@@ -55,7 +55,7 @@ export const SetupPage = () => {
       edgeDeploy: { id: SetupPageStep.EdgeDeploy, order: 5, label: m.initial_setup_step_edge_deploy_label(), description: m.initial_setup_step_edge_deploy_description() },
       edgeComponent: { id: SetupPageStep.EdgeComponent, order: 6, label: m.initial_setup_step_edge_component_label(), description: m.initial_setup_step_edge_component_description() },
       edgeAdoption: { id: SetupPageStep.EdgeAdoption, order: 7, label: m.initial_setup_step_edge_adoption_label(), description: m.initial_setup_step_edge_adoption_description() },
-      internalUrlSettings: { id: SetupPageStep.InternalUrlSettings, order: 8, label: m.initial_setup_step_internal_url_settings_label(), description: m.initial_setup_step_internal_url_settings_description() },
+      internalUrlSettings: { id: SetupPageStep.InternalUrlSettings, order: 8, label: m.initial_setup_step_internal_url_settings_label(), description: `Configure the internal URL and SSL settings for your ${branding.productName} instance.` },
       internalUrlSslConfig: { id: SetupPageStep.InternalUrlSslConfig, order: 9, label: m.initial_setup_step_internal_url_ssl_config_label(), description: m.initial_setup_step_internal_url_ssl_config_description() },
       externalUrlSettings: { id: SetupPageStep.ExternalUrlSettings, order: 10, label: m.initial_setup_step_external_url_settings_label(), description: m.initial_setup_step_external_url_settings_description() },
       externalUrlSslConfig: { id: SetupPageStep.ExternalUrlSslConfig, order: 11, label: m.initial_setup_step_external_url_ssl_config_label(), description: m.initial_setup_step_external_url_ssl_config_description() },

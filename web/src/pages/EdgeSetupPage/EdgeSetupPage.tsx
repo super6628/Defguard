@@ -2,6 +2,7 @@ import './style.scss';
 import { useNavigate } from '@tanstack/react-router';
 import { type ReactNode, useMemo } from 'react';
 import { m } from '../../paraglide/messages';
+import { branding } from '../../shared/branding/branding';
 import { Controls } from '../../shared/components/Controls/Controls';
 import type { WizardPageStep } from '../../shared/components/wizard/types';
 import { WizardCoverImage } from '../../shared/components/wizard/WizardCoverImage/WizardCoverImage';
@@ -74,6 +75,14 @@ export const EdgeSetupPage = () => {
     </>
   );
 
+  const handleClose = () => {
+    navigate({ to: '/vpn-overview', replace: true }).then(() => {
+      setTimeout(() => {
+        useEdgeWizardStore.getState().reset();
+      }, 100);
+    });
+  };
+
   return (
     <WizardPage
       id="edge-setup-wizard"
@@ -82,27 +91,15 @@ export const EdgeSetupPage = () => {
       title={m.edge_setup_page_title()}
       steps={stepsConfig}
       isOnWelcomePage={isOnWelcomePage}
-      onClose={() => {
-        navigate({ to: '/vpn-overview', replace: true }).then(() => {
-          setTimeout(() => {
-            useEdgeWizardStore.getState().reset();
-          }, 100);
-        });
-      }}
+      onClose={handleClose}
       welcomePageConfig={{
         title: m.edge_setup_welcome_title(),
         subtitle: m.edge_setup_welcome_subtitle(),
         content: <WelcomePageContent />,
-        docsLink: 'https://docs.defguard.net/edge-component/deployment',
+        docsLink: branding.documentationUrl || undefined,
         docsText: m.edge_setup_welcome_docs_text(),
         media: <WizardCoverImage variant="edge" />,
-        onClose: () => {
-          navigate({ to: '/vpn-overview', replace: true }).then(() => {
-            setTimeout(() => {
-              useEdgeWizardStore.getState().reset();
-            }, 100);
-          });
-        },
+        onClose: handleClose,
       }}
     >
       {stepsComponents[activeStep]}

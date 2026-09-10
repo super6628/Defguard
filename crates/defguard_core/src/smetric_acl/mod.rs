@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)]
 pub mod api;
 pub mod deployment;
 pub mod deployment_ack;
@@ -5,7 +6,10 @@ pub mod device_groups;
 pub mod gateway;
 pub mod location_deployment;
 pub mod location_effective;
+pub mod security_event;
 pub mod service;
+#[path = "../smetric_traffic_policy.rs"]
+pub mod traffic_policy;
 
 use std::{fmt, net::IpAddr, str::FromStr};
 
@@ -334,24 +338,24 @@ pub fn validate(policy: &Policy) -> Result<(), ValidationError> {
             }
             Destination::IpRange(value) => {
                 validate_nonempty(rule.id, value, false)?;
-                let (start, end) = value
-                    .split_once('-')
-                    .ok_or_else(|| ValidationError::InvalidIpRange {
-                        rule_id: rule.id,
-                        value: value.clone(),
-                    })?;
+                let (start, end) =
+                    value
+                        .split_once('-')
+                        .ok_or_else(|| ValidationError::InvalidIpRange {
+                            rule_id: rule.id,
+                            value: value.clone(),
+                        })?;
                 let start = IpAddr::from_str(start.trim()).map_err(|_| {
                     ValidationError::InvalidIpRange {
                         rule_id: rule.id,
                         value: value.clone(),
                     }
                 })?;
-                let end = IpAddr::from_str(end.trim()).map_err(|_| {
-                    ValidationError::InvalidIpRange {
+                let end =
+                    IpAddr::from_str(end.trim()).map_err(|_| ValidationError::InvalidIpRange {
                         rule_id: rule.id,
                         value: value.clone(),
-                    }
-                })?;
+                    })?;
                 if start.is_ipv4() != end.is_ipv4() {
                     return Err(ValidationError::InvalidIpRange {
                         rule_id: rule.id,
@@ -369,15 +373,15 @@ pub fn validate(policy: &Policy) -> Result<(), ValidationError> {
 
 pub fn compile(policy: Policy) -> Result<CompiledPolicy, ValidationError> {
     validate(&policy)?;
-    let mut rules: Vec<Rule> = policy.rules.into_iter().filter(|rule| rule.enabled).collect();
+    let mut rules: Vec<Rule> = policy
+        .rules
+        .into_iter()
+        .filter(|rule| rule.enabled)
+        .collect();
     rules.sort_by_key(|rule| (rule.priority, rule.id));
-    let canonical = serde_json::to_string(&(
-        policy.id,
-        policy.revision,
-        policy.default_action,
-        &rules,
-    ))
-    .expect("S-Metric ACL policy serialization cannot fail");
+    let canonical =
+        serde_json::to_string(&(policy.id, policy.revision, policy.default_action, &rules))
+            .expect("S-Metric ACL policy serialization cannot fail");
     Ok(CompiledPolicy {
         policy_id: policy.id,
         revision: policy.revision,

@@ -16,11 +16,12 @@ pub mod upstream_openid_providers;
 
 pub mod openid_login {
     pub use super::smetric_microsoft_oidc::{auth_callback, get_auth_info};
-    pub use super::upstream_openid_login::{
-        SELECT_ACCOUNT_SUPPORTED_PROVIDERS, __path_auth_callback, __path_get_auth_info,
-        build_state, make_oidc_client, prune_username, user_from_claims,
-    };
     pub(crate) use super::upstream_openid_login::extract_state_data;
+    pub use super::upstream_openid_login::{
+        __path_auth_callback, __path_get_auth_info, MfaOidcState,
+        SELECT_ACCOUNT_SUPPORTED_PROVIDERS, build_state, make_oidc_client, prune_username,
+        user_from_claims,
+    };
 }
 
 pub mod openid_providers {

@@ -4,9 +4,8 @@ use chrono::{TimeDelta, Utc};
 use defguard_common::{
     db::{
         models::{
-            vpn_client_session::{VpnClientMfaMethod, VpnClientSession, VpnClientSessionState},
+            vpn_client_session::{VpnClientSession, VpnClientSessionState},
             vpn_session_stats::VpnSessionStats,
-            wireguard::LocationMfaMode,
         },
         setup_pool,
     },
@@ -32,7 +31,7 @@ async fn test_mfa_location_stats_do_not_create_missing_session(
     options: PgConnectOptions,
 ) {
     let pool = setup_pool(options).await;
-    let location = create_location_with_mfa_mode(&pool, LocationMfaMode::Internal).await;
+    let location = create_location_with_mfa_mode(&pool, true).await;
     let user = create_user(&pool).await;
     let device = create_device(&pool, user.id).await;
     attach_device_to_location(&pool, location.id, device.id).await;
@@ -72,23 +71,14 @@ async fn test_mfa_new_session_upgrades_to_connected_on_stats(
     options: PgConnectOptions,
 ) {
     let pool = setup_pool(options).await;
-    let location = create_location_with_mfa_mode(&pool, LocationMfaMode::Internal).await;
+    let location = create_location_with_mfa_mode(&pool, true).await;
     let user = create_user(&pool).await;
     let device = create_device(&pool, user.id).await;
     attach_device_to_location(&pool, location.id, device.id).await;
     let gateway = create_gateway(&pool, location.id, user.fullname()).await;
     let mut harness = SessionManagerHarness::new(pool.clone());
 
-    let session = create_session(
-        &pool,
-        location.id,
-        user.id,
-        device.id,
-        None,
-        Some(VpnClientMfaMethod::Totp),
-        None,
-    )
-    .await;
+    let session = create_session(&pool, location.id, user.id, device.id, None, true, None).await;
 
     let endpoint: SocketAddr = "203.0.113.10:51820".parse().unwrap();
     let handshake = truncate_timestamp(Utc::now().naive_utc());
@@ -184,23 +174,14 @@ async fn test_duplicate_first_stats_on_mfa_new_session_are_idempotent(
     options: PgConnectOptions,
 ) {
     let pool = setup_pool(options).await;
-    let location = create_location_with_mfa_mode(&pool, LocationMfaMode::Internal).await;
+    let location = create_location_with_mfa_mode(&pool, true).await;
     let user = create_user(&pool).await;
     let device = create_device(&pool, user.id).await;
     attach_device_to_location(&pool, location.id, device.id).await;
     let gateway = create_gateway(&pool, location.id, user.fullname()).await;
     let mut harness = SessionManagerHarness::new(pool.clone());
 
-    let session = create_session(
-        &pool,
-        location.id,
-        user.id,
-        device.id,
-        None,
-        Some(VpnClientMfaMethod::Totp),
-        None,
-    )
-    .await;
+    let session = create_session(&pool, location.id, user.id, device.id, None, true, None).await;
 
     let endpoint: SocketAddr = "203.0.113.10:51820".parse().unwrap();
     let handshake = truncate_timestamp(Utc::now().naive_utc());
@@ -269,23 +250,14 @@ async fn test_repeated_later_stats_on_mfa_session_remain_idempotent(
     options: PgConnectOptions,
 ) {
     let pool = setup_pool(options).await;
-    let location = create_location_with_mfa_mode(&pool, LocationMfaMode::Internal).await;
+    let location = create_location_with_mfa_mode(&pool, true).await;
     let user = create_user(&pool).await;
     let device = create_device(&pool, user.id).await;
     attach_device_to_location(&pool, location.id, device.id).await;
     let gateway = create_gateway(&pool, location.id, user.fullname()).await;
     let mut harness = SessionManagerHarness::new(pool.clone());
 
-    let session = create_session(
-        &pool,
-        location.id,
-        user.id,
-        device.id,
-        None,
-        Some(VpnClientMfaMethod::Totp),
-        None,
-    )
-    .await;
+    let session = create_session(&pool, location.id, user.id, device.id, None, true, None).await;
 
     let endpoint: SocketAddr = "203.0.113.10:51820".parse().unwrap();
     let first_handshake = truncate_timestamp(Utc::now().naive_utc() - TimeDelta::seconds(30));
@@ -374,23 +346,14 @@ async fn test_closed_event_channel_keeps_mfa_first_stats_upgrade_idempotent(
     options: PgConnectOptions,
 ) {
     let pool = setup_pool(options).await;
-    let location = create_location_with_mfa_mode(&pool, LocationMfaMode::Internal).await;
+    let location = create_location_with_mfa_mode(&pool, true).await;
     let user = create_user(&pool).await;
     let device = create_device(&pool, user.id).await;
     attach_device_to_location(&pool, location.id, device.id).await;
     let gateway = create_gateway(&pool, location.id, user.fullname()).await;
     let mut harness = SessionManagerHarness::new(pool.clone());
 
-    let session = create_session(
-        &pool,
-        location.id,
-        user.id,
-        device.id,
-        None,
-        Some(VpnClientMfaMethod::Totp),
-        None,
-    )
-    .await;
+    let session = create_session(&pool, location.id, user.id, device.id, None, true, None).await;
 
     let endpoint: SocketAddr = "203.0.113.10:51820".parse().unwrap();
     let first_handshake = truncate_timestamp(Utc::now().naive_utc() - TimeDelta::seconds(30));
@@ -449,7 +412,7 @@ async fn test_inactive_mfa_connected_sessions_disconnect_and_clear_authorization
     options: PgConnectOptions,
 ) {
     let pool = setup_pool(options).await;
-    let location = create_location_with_mfa_mode(&pool, LocationMfaMode::Internal).await;
+    let location = create_location_with_mfa_mode(&pool, true).await;
     let user = create_user(&pool).await;
     let device = create_device(&pool, user.id).await;
     attach_device_to_location(&pool, location.id, device.id).await;
@@ -531,7 +494,7 @@ async fn test_never_connected_mfa_new_sessions_disconnect_after_threshold(
     options: PgConnectOptions,
 ) {
     let pool = setup_pool(options).await;
-    let location = create_location_with_mfa_mode(&pool, LocationMfaMode::Internal).await;
+    let location = create_location_with_mfa_mode(&pool, true).await;
     let user = create_user(&pool).await;
     let device = create_device(&pool, user.id).await;
     attach_device_to_location(&pool, location.id, device.id).await;
@@ -543,7 +506,7 @@ async fn test_never_connected_mfa_new_sessions_disconnect_after_threshold(
         user.id,
         device.id,
         None,
-        Some(VpnClientMfaMethod::Totp),
+        true,
         Some("psk-before-timeout"),
     )
     .await;

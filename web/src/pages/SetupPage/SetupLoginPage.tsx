@@ -4,6 +4,7 @@ import type { AxiosError } from 'axios';
 import z from 'zod';
 import { m } from '../../paraglide/messages';
 import api from '../../shared/api/api';
+import { branding } from '../../shared/branding/branding';
 import { LoginPage } from '../../shared/components/LoginPage/LoginPage';
 import { Button } from '../../shared/defguard-ui/components/Button/Button';
 import { InfoBanner } from '../../shared/defguard-ui/components/InfoBanner/InfoBanner';
@@ -83,8 +84,8 @@ export const SetupLoginPage = () => {
 
   return (
     <LoginPage>
-      <h1>{m.login_main_title()}</h1>
-      <h2>{m.initial_setup_login_subtitle()}</h2>
+      <h1>{branding.loginTitle || m.login_main_title()}</h1>
+      <h2>{branding.loginSubtitle || m.initial_setup_login_subtitle()}</h2>
       <SizedBox height={ThemeSize.Xl3} />
       {tooManyAttempts && (
         <>
