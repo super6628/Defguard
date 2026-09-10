@@ -19,4 +19,13 @@ describe('formatConnectorDestination', () => {
   it('does not echo malformed connector values', () => {
     expect(formatConnectorDestination('collector-token-or-secret')).toBe('Configured destination');
   });
+
+  it('does not expose non-HTTP destinations', () => {
+    expect(formatConnectorDestination('data:text/plain,collector-secret')).toBe(
+      'Configured destination',
+    );
+    expect(formatConnectorDestination('javascript:collectorSecret()')).toBe(
+      'Configured destination',
+    );
+  });
 });
