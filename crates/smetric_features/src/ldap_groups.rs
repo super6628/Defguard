@@ -66,22 +66,6 @@ mod tests {
         graph.insert(vpn.clone(), vec![all.clone()]);
         graph.insert(all.clone(), vec![dev.clone()]);
 
-        let groups = transitive_parent_groups(&user).unwrap_err();
-        assert_ne!(groups, NestedGroupError::LimitExceeded(DEFAULT_MAX_NESTED_GROUPS));
-    }
-
-    #[test]
-    fn resolves_expected_nested_groups() {
-        let user = "uid=alice,ou=users,dc=example,dc=com".to_owned();
-        let dev = "cn=dev,ou=groups,dc=example,dc=com".to_owned();
-        let vpn = "cn=vpn,ou=groups,dc=example,dc=com".to_owned();
-        let all = "cn=all,ou=groups,dc=example,dc=com".to_owned();
-        let mut graph = HashMap::new();
-        graph.insert(user.clone(), vec![dev.clone()]);
-        graph.insert(dev.clone(), vec![vpn.clone()]);
-        graph.insert(vpn.clone(), vec![all.clone()]);
-        graph.insert(all.clone(), vec![dev.clone()]);
-
         let groups = transitive_parent_groups(&user, &graph).unwrap();
         assert_eq!(groups.len(), 3);
         assert!(groups.contains(&dev));
