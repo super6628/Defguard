@@ -14,6 +14,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import api from '../../../shared/api/api';
 import { getApiErrorMessage } from '../../../shared/api/apiErrorMessages';
 import { type OpenIdAuthInfo, WebErrorCode } from '../../../shared/api/types';
+import { brandConfig } from '../../../shared/branding';
 import { Divider } from '../../../shared/defguard-ui/components/Divider/Divider';
 import { InfoBanner } from '../../../shared/defguard-ui/components/InfoBanner/InfoBanner';
 import { OIDCButton } from '../../../shared/defguard-ui/components/SSOButton/OIDCButton';
@@ -114,7 +115,7 @@ export const LoginMainPage = () => {
 
   return (
     <LoginPage>
-      <h1>{m.login_main_title()}</h1>
+      <h1>{m.login_main_title({ productName: brandConfig.productName })}</h1>
       <h2>{m.login_main_subtitle()}</h2>
       <SizedBox height={ThemeSize.Xl3} />
       {isPresent(authErrorMessage) && (
