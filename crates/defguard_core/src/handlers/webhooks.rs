@@ -21,6 +21,15 @@ const X_DEFGUARD_EVENT: &str = "x-defguard-event";
 const WEBHOOK_TEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 fn validate_webhook_url(url: &str) -> Result<(), WebError> {
+    // The URL parser normalizes malformed inputs such as `http:/webhook`.
+    // Require an explicit HTTP(S) authority before parsing so invalid webhook
+    // targets are rejected instead of silently repaired.
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err(WebError::BadRequest(
+            "Webhook URL must use http:// or https://".into(),
+        ));
+    }
+
     let parsed = Url::parse(url)
         .map_err(|_| WebError::BadRequest("Webhook URL must be a valid URL".into()))?;
 
