@@ -2,9 +2,7 @@
 //!
 //! SMTP XOAUTH2 is implemented by the S-Metric-owned `smetric_features` crate. This module keeps
 //! the existing core import path stable while removing SMTP authentication from the Enterprise
-//! license gate. Other Enterprise OAuth helpers may continue to live in their own modules.
-
-pub mod microsoft;
+//! license gate.
 
 use defguard_common::db::models::settings::smtp::SmtpSettings;
 use smetric_features::smtp_oauth::{SmtpOAuthError, access_token};
