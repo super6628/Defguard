@@ -16,7 +16,8 @@ impl MicrosoftGroupScope {
             group_ids: group_ids
                 .into_iter()
                 .map(Into::into)
-                .filter(|id| !id.trim().is_empty())
+                .map(|id: String| id.trim().to_owned())
+                .filter(|id| !id.is_empty())
                 .collect(),
         }
     }
@@ -28,7 +29,7 @@ impl MicrosoftGroupScope {
 
     #[must_use]
     pub fn includes_group(&self, group_id: &str) -> bool {
-        self.is_unrestricted() || self.group_ids.contains(group_id)
+        self.is_unrestricted() || self.group_ids.contains(group_id.trim())
     }
 
     #[must_use]
@@ -36,7 +37,10 @@ impl MicrosoftGroupScope {
     where
         I: IntoIterator<Item = &'a str>,
     {
-        self.is_unrestricted() || group_ids.into_iter().any(|id| self.group_ids.contains(id))
+        self.is_unrestricted()
+            || group_ids
+                .into_iter()
+                .any(|id| self.group_ids.contains(id.trim()))
     }
 
     #[must_use]
@@ -61,5 +65,14 @@ mod tests {
         let scope = MicrosoftGroupScope::new(["engineering", "vpn"]);
         assert!(scope.includes_user(["vpn"].into_iter()));
         assert!(!scope.includes_user(["sales"].into_iter()));
+    }
+
+    #[test]
+    fn group_ids_are_trimmed_consistently() {
+        let scope = MicrosoftGroupScope::new([" engineering ", "\t vpn\n", "   "]);
+        assert_eq!(scope.ids().len(), 2);
+        assert!(scope.includes_group("engineering"));
+        assert!(scope.includes_group(" vpn "));
+        assert!(scope.includes_user(["\tvpn\t"].into_iter()));
     }
 }
