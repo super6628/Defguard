@@ -6,16 +6,17 @@ on:
       - feature/smetric-admin-sync-dev-20260910
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  generate:
+  generate-and-commit:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          ref: feature/smetric-admin-sync-dev-20260910
 
       - name: Add S-Metric internal license exception
         run: |
@@ -35,11 +36,11 @@ jobs:
       - name: Generate Cargo lockfile
         run: cargo generate-lockfile
 
-      - name: Upload generated integration files
-        uses: actions/upload-artifact@v4
-        with:
-          name: smetric-integration-generated
-          path: |
-            Cargo.lock
-            deny.toml
-          retention-days: 1
+      - name: Commit generated files and remove helper workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock deny.toml
+          git rm .github/workflows/smetric-integration-fix.yml
+          git commit -m "fix: refresh lockfile and license policy for S-Metric"
+          git push origin HEAD:feature/smetric-admin-sync-dev-20260910
