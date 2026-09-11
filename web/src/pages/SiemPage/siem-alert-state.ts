@@ -6,9 +6,7 @@ export const MAX_PERSISTED_SIEM_ACKNOWLEDGEMENTS = 500;
 const eventIdDescending = ([left]: [string, unknown], [right]: [string, unknown]) =>
   Number(right) - Number(left);
 
-export const pruneSiemAlertState = (
-  state: Record<string, unknown>,
-): SiemAlertState =>
+export const pruneSiemAlertState = (state: Record<string, unknown>): SiemAlertState =>
   Object.fromEntries(
     Object.entries(state)
       .filter(([eventId, status]) => /^\d+$/.test(eventId) && status === 'acknowledged')
