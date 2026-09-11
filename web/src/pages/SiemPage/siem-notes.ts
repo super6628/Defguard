@@ -6,9 +6,7 @@ export const MAX_PERSISTED_SIEM_NOTES = 250;
 const eventIdDescending = ([left]: [string, unknown], [right]: [string, unknown]) =>
   Number(right) - Number(left);
 
-export const pruneSiemNotes = (
-  notes: Record<string, unknown>,
-): SiemInvestigationNotes =>
+export const pruneSiemNotes = (notes: Record<string, unknown>): SiemInvestigationNotes =>
   Object.fromEntries(
     Object.entries(notes)
       .filter(
