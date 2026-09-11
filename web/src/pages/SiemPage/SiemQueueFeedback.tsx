@@ -51,7 +51,11 @@ export const SiemQueueFeedback = ({
           hasPageFilters={hasPageFilters}
         />
         <SiemStatePanel
-          title={noServerMatches ? 'No security events found' : 'No visible events on this page'}
+          title={
+            noServerMatches
+              ? 'No security events found'
+              : 'No visible events on this page'
+          }
           description={
             noServerMatches
               ? 'No Activity Log events match the current server-side filters.'
