@@ -11,13 +11,15 @@ describe('formatConnectorDestination', () => {
   });
 
   it('removes embedded credentials', () => {
-    expect(formatConnectorDestination('https://user:password@collector.example.com/events')).toBe(
-      'https://collector.example.com',
-    );
+    expect(
+      formatConnectorDestination('https://user:password@collector.example.com/events'),
+    ).toBe('https://collector.example.com');
   });
 
   it('does not echo malformed connector values', () => {
-    expect(formatConnectorDestination('collector-token-or-secret')).toBe('Configured destination');
+    expect(formatConnectorDestination('collector-token-or-secret')).toBe(
+      'Configured destination',
+    );
   });
 
   it('does not expose non-HTTP destinations', () => {
