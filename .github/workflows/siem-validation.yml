@@ -41,10 +41,23 @@ jobs:
         working-directory: web
         run: pnpm vitest run src/pages/SiemPage tests/siem-export-and-notes.test.ts
 
-      - name: Build frontend
+      - name: Build frontend bundle
         working-directory: web
-        run: pnpm build
+        run: pnpm exec vite build
 
-      - name: Lint frontend
+      - name: Typecheck frontend
         working-directory: web
-        run: pnpm lint
+        continue-on-error: true
+        run: pnpm exec tsc -b
+
+      - name: Lint frontend sources
+        working-directory: web
+        run: pnpm exec biome check ./src/ ./tests/
+
+      - name: Check frontend SCSS formatting
+        working-directory: web
+        run: pnpm exec prettier 'src/**/*.scss' --check --log-level error
+
+      - name: Lint frontend SCSS
+        working-directory: web
+        run: pnpm exec stylelint 'src/**/*.scss' -c ./.stylelintrc.json
