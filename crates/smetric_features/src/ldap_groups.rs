@@ -99,8 +99,7 @@ mod tests {
 
     #[test]
     fn zero_limit_allows_member_without_parents() {
-        let groups =
-            transitive_parent_groups_with_limit("uid=alice", &HashMap::new(), 0).unwrap();
+        let groups = transitive_parent_groups_with_limit("uid=alice", &HashMap::new(), 0).unwrap();
         assert!(groups.is_empty());
     }
 
