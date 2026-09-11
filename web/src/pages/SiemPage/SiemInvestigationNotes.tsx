@@ -11,6 +11,7 @@ type Props = {
 export const SiemInvestigationNotes = ({ eventId, initialNote, onSave }: Props) => {
   const [draft, setDraft] = useState(initialNote);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: eventId intentionally resets the draft when switching events that have the same saved note text.
   useEffect(() => {
     setDraft(initialNote);
   }, [eventId, initialNote]);
@@ -41,15 +42,12 @@ export const SiemInvestigationNotes = ({ eventId, initialNote, onSave }: Props) 
       />
       <div className="siem-investigation-note-actions">
         <span>
-          {draft.length}/{MAX_NOTE_LENGTH} characters · stored for this analyst in this browser.
+          {draft.length}/{MAX_NOTE_LENGTH} characters · stored for this analyst in this
+          browser.
         </span>
         <div>
           {hasSavedNote && (
-            <button
-              className="siem-alert-action"
-              type="button"
-              onClick={clearNote}
-            >
+            <button className="siem-alert-action" type="button" onClick={clearNote}>
               Clear note
             </button>
           )}
