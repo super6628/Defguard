@@ -19,7 +19,9 @@ export const SiemResultsSummary = ({
       <span>
         {loadedCount} loaded on this page · {serverTotal} matched by server filters
       </span>
-      {hasPageFilters && <small>Page-local filters are narrowing the loaded results.</small>}
+      {hasPageFilters && (
+        <small>Page-local filters are narrowing the loaded results.</small>
+      )}
     </div>
     <SiemConnectorStatus />
   </>
