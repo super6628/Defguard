@@ -6,6 +6,8 @@ pub const DEFAULT_MAX_NESTED_GROUPS: usize = 10_000;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum NestedGroupError {
+    #[error("nested LDAP group traversal requires a non-empty member DN")]
+    EmptyMemberDn,
     #[error("nested LDAP group traversal exceeded the configured limit of {0} groups")]
     LimitExceeded(usize),
 }
@@ -15,6 +17,11 @@ pub fn transitive_parent_groups_with_limit(
     parents_by_member: &HashMap<String, Vec<String>>,
     max_groups: usize,
 ) -> Result<HashSet<String>, NestedGroupError> {
+    let member_dn = member_dn.trim();
+    if member_dn.is_empty() {
+        return Err(NestedGroupError::EmptyMemberDn);
+    }
+
     let mut result = HashSet::new();
     let mut queue = VecDeque::from([member_dn.to_owned()]);
     let mut visited_members = HashSet::new();
@@ -79,6 +86,32 @@ mod tests {
         assert_eq!(
             transitive_parent_groups_with_limit(&user, &graph, 1),
             Err(NestedGroupError::LimitExceeded(1))
+        );
+    }
+
+    #[test]
+    fn empty_member_dn_is_rejected() {
+        assert_eq!(
+            transitive_parent_groups("   ", &HashMap::new()),
+            Err(NestedGroupError::EmptyMemberDn)
+        );
+    }
+
+    #[test]
+    fn zero_limit_allows_member_without_parents() {
+        let groups =
+            transitive_parent_groups_with_limit("uid=alice", &HashMap::new(), 0).unwrap();
+        assert!(groups.is_empty());
+    }
+
+    #[test]
+    fn zero_limit_rejects_first_parent() {
+        let mut graph = HashMap::new();
+        graph.insert("uid=alice".to_owned(), vec!["cn=vpn".to_owned()]);
+
+        assert_eq!(
+            transitive_parent_groups_with_limit("uid=alice", &graph, 0),
+            Err(NestedGroupError::LimitExceeded(0))
         );
     }
 }
