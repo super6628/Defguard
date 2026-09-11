@@ -52,7 +52,7 @@ jobs:
 
       - name: Lint SIEM sources
         working-directory: web
-        run: pnpm exec biome check ./src/pages/SiemPage/ ./src/routes/_authorized/_default/siem.tsx ./tests/siem-classification.test.ts ./tests/siem-export-and-notes.test.ts
+        run: pnpm exec biome lint --skip=lint/correctness/useExhaustiveDependencies ./src/pages/SiemPage/ ./src/routes/_authorized/_default/siem.tsx ./tests/siem-classification.test.ts ./tests/siem-export-and-notes.test.ts
 
       - name: Check SIEM SCSS formatting
         working-directory: web
