@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
-  SIEM_NOTES_STORAGE_KEY,
   parseSiemNotes,
-  updateSiemNote,
+  SIEM_NOTES_STORAGE_KEY,
   type SiemInvestigationNotes,
+  updateSiemNote,
 } from './siem-notes';
 import { readSiemScopedStorage, writeSiemScopedStorage } from './siem-storage';
 
