@@ -3,6 +3,7 @@ import {
   ActivityLogEventType,
   ActivityLogModule,
 } from '../../shared/api/activity-log-types';
+import type { SiemDetectionRuleId } from '../../shared/api/siem-types';
 import {
   getFallbackDetections,
   getFallbackSeverity,
@@ -10,6 +11,13 @@ import {
   getSiemSeverity,
   type SiemActivityLogEvent,
 } from './siem-classification';
+
+const allowedDetections = new Set<SiemDetectionRuleId>([
+  'authentication-failures',
+  'credential-security-changes',
+  'posture-failures',
+  'infrastructure-changes',
+]);
 
 const makeEvent = (
   event: SiemActivityLogEvent['event'],
@@ -19,29 +27,18 @@ const makeEvent = (
   user_id: 1,
   username: 'analyst',
   ip: null,
-  location: null,
   event,
   module: ActivityLogModule.Defguard,
   device: 'browser',
-  description: null,
 });
 
 describe('SIEM classification contracts', () => {
   it('classifies every known Activity Log event with valid fallback metadata', () => {
     for (const event of Object.values(ActivityLogEventType)) {
       expect(['critical', 'high', 'medium', 'low']).toContain(getFallbackSeverity(event));
-      expect(getFallbackDetections(event)).toEqual(
-        expect.arrayContaining(
-          getFallbackDetections(event).filter((rule) =>
-            [
-              'authentication-failures',
-              'credential-security-changes',
-              'posture-failures',
-              'infrastructure-changes',
-            ].includes(rule),
-          ),
-        ),
-      );
+      const detections = getFallbackDetections(event);
+      expect(detections.every((rule) => allowedDetections.has(rule))).toBe(true);
+      expect(new Set(detections).size).toBe(detections.length);
     }
   });
 
