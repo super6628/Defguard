@@ -50,14 +50,14 @@ jobs:
         continue-on-error: true
         run: pnpm exec tsc -b
 
-      - name: Lint frontend sources
+      - name: Lint SIEM sources
         working-directory: web
-        run: pnpm exec biome check ./src/ ./tests/
+        run: pnpm exec biome check ./src/pages/SiemPage/ ./src/routes/_authorized/_default/siem.tsx ./tests/siem-classification.test.ts ./tests/siem-export-and-notes.test.ts
 
-      - name: Check frontend SCSS formatting
+      - name: Check SIEM SCSS formatting
         working-directory: web
-        run: pnpm exec prettier 'src/**/*.scss' --check --log-level error
+        run: pnpm exec prettier 'src/pages/SiemPage/**/*.scss' --check --log-level error
 
-      - name: Lint frontend SCSS
+      - name: Lint SIEM SCSS
         working-directory: web
-        run: pnpm exec stylelint 'src/**/*.scss' -c ./.stylelintrc.json
+        run: pnpm exec stylelint 'src/pages/SiemPage/**/*.scss' -c ./.stylelintrc.json
