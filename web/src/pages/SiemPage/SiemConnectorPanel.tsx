@@ -49,7 +49,11 @@ export const SiemConnectorPanel = ({
       </div>
       <div className="siem-panel-actions">
         <span className="siem-panel-meta" aria-live="polite">
-          {isLoading ? 'Loading…' : isError ? 'Status unavailable' : `${streams.length} configured`}
+          {isLoading
+            ? 'Loading…'
+            : isError
+              ? 'Status unavailable'
+              : `${streams.length} configured`}
         </span>
         <button
           className="siem-refresh"
@@ -71,16 +75,16 @@ export const SiemConnectorPanel = ({
       <div className="siem-state" role="alert">
         <strong>Connector status could not be loaded</strong>
         <p>
-          Security event analysis remains available. Outbound Activity Log stream status can be
-          retried independently.
+          Security event analysis remains available. Outbound Activity Log stream status
+          can be retried independently.
         </p>
       </div>
     ) : streams.length === 0 ? (
       <div className="siem-state">
         <strong>No outbound streams configured</strong>
         <p>
-          Activity Log events remain available in SIEM. Configure an Activity Log stream when events
-          also need to be forwarded to an external collector.
+          Activity Log events remain available in SIEM. Configure an Activity Log stream
+          when events also need to be forwarded to an external collector.
         </p>
       </div>
     ) : (
@@ -105,11 +109,19 @@ export const SiemConnectorPanel = ({
               </div>
               <div>
                 <dt>Authentication</dt>
-                <dd>{stream.config.username ? 'Credentials configured' : 'No username configured'}</dd>
+                <dd>
+                  {stream.config.username
+                    ? 'Credentials configured'
+                    : 'No username configured'}
+                </dd>
               </div>
               <div>
                 <dt>TLS certificate</dt>
-                <dd>{stream.config.cert ? 'Custom certificate configured' : 'Default trust store'}</dd>
+                <dd>
+                  {stream.config.cert
+                    ? 'Custom certificate configured'
+                    : 'Default trust store'}
+                </dd>
               </div>
             </dl>
           </article>
