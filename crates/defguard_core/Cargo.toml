@@ -17,6 +17,7 @@ model_derive = { workspace = true }
 defguard_certs = { workspace = true }
 defguard_grpc_tls = { workspace = true }
 defguard_static_ip = { workspace = true }
+smetric_features = { path = "../smetric_features" }
 
 # mail (moved in-crate from the former defguard_mail crate)
 lettre.workspace = true
