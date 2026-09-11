@@ -59,6 +59,19 @@ fn provider_body(body: String) -> String {
     body.chars().take(MAX_PROVIDER_ERROR_BYTES).collect()
 }
 
+fn discovery_url(issuer: &str) -> Result<reqwest::Url, SmtpOAuthError> {
+    let mut issuer_url = reqwest::Url::parse(issuer).map_err(|_| SmtpOAuthError::InvalidIssuer)?;
+    if issuer_url.scheme() != "https" || issuer_url.host_str().is_none() {
+        return Err(SmtpOAuthError::InvalidIssuer);
+    }
+
+    issuer_url.set_query(None);
+    issuer_url.set_fragment(None);
+    let path = issuer_url.path().trim_end_matches('/');
+    issuer_url.set_path(&format!("{path}/.well-known/openid-configuration"));
+    Ok(issuer_url)
+}
+
 async fn provider_error(status: StatusCode, response: reqwest::Response) -> SmtpOAuthError {
     SmtpOAuthError::Provider {
         status,
@@ -72,14 +85,7 @@ pub async fn access_token(settings: &SmtpSettings) -> Result<String, SmtpOAuthEr
     let client_secret = secret(&settings.oauth_client_secret, "smtp_oauth_client_secret")?;
     let refresh_token = required(&settings.oauth_refresh_token, "smtp_oauth_refresh_token")?;
 
-    let issuer_url = reqwest::Url::parse(&issuer).map_err(|_| SmtpOAuthError::InvalidIssuer)?;
-    if issuer_url.scheme() != "https" || issuer_url.host_str().is_none() {
-        return Err(SmtpOAuthError::InvalidIssuer);
-    }
-
-    let discovery_url = issuer_url
-        .join(".well-known/openid-configuration")
-        .map_err(|_| SmtpOAuthError::InvalidIssuer)?;
+    let discovery_url = discovery_url(&issuer)?;
     let client = Client::builder()
         .timeout(OAUTH_HTTP_TIMEOUT)
         .build()
@@ -101,7 +107,7 @@ pub async fn access_token(settings: &SmtpSettings) -> Result<String, SmtpOAuthEr
 
     let token_endpoint = reqwest::Url::parse(&discovery.token_endpoint)
         .map_err(|_| SmtpOAuthError::InvalidIssuer)?;
-    if token_endpoint.scheme() != "https" {
+    if token_endpoint.scheme() != "https" || token_endpoint.host_str().is_none() {
         return Err(SmtpOAuthError::InvalidIssuer);
     }
 
@@ -139,5 +145,23 @@ mod tests {
     fn provider_errors_are_bounded() {
         let body = "x".repeat(MAX_PROVIDER_ERROR_BYTES + 100);
         assert_eq!(provider_body(body).len(), MAX_PROVIDER_ERROR_BYTES);
+    }
+
+    #[test]
+    fn discovery_preserves_issuer_path() {
+        let url = discovery_url("https://login.example.com/tenant/v2.0").unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://login.example.com/tenant/v2.0/.well-known/openid-configuration"
+        );
+    }
+
+    #[test]
+    fn discovery_strips_query_and_fragment() {
+        let url = discovery_url("https://login.example.com/tenant/?ignored=1#fragment").unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://login.example.com/tenant/.well-known/openid-configuration"
+        );
     }
 }
