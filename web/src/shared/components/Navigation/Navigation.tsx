@@ -144,7 +144,7 @@ const navigationConfig: NavGroupProps[] = [
       },
       {
         id: 'siem',
-        icon: 'log',
+        icon: 'analytics',
         label: 'SIEM',
         link: '/siem' as LinkProps['to'],
         testId: 'siem',
