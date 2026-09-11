@@ -15,8 +15,6 @@ const formatStreamType = (streamType: ActivityLogStream['stream_type']) => {
       return 'Vector HTTP';
     case 'logstash_http':
       return 'Logstash HTTP';
-    default:
-      return streamType.replaceAll('_', ' ');
   }
 };
 
