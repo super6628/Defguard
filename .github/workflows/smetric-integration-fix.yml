@@ -1,0 +1,45 @@
+name: S-Metric integration fix generator
+
+on:
+  push:
+    branches:
+      - feature/smetric-admin-sync-dev-20260910
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Add S-Metric internal license exception
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("deny.toml")
+          text = path.read_text()
+          marker = '''    { allow = [\n        "AGPL-3.0-only",\n        "AGPL-3.0-or-later",\n    ], crate = "defguard_static_ip" },\n'''
+          addition = marker + '''    { allow = [\n        "AGPL-3.0-only",\n        "AGPL-3.0-or-later",\n    ], crate = "smetric_features" },\n'''
+          if 'crate = "smetric_features"' not in text:
+              if marker not in text:
+                  raise SystemExit("license exception insertion point not found")
+              text = text.replace(marker, addition, 1)
+              path.write_text(text)
+          PY
+
+      - name: Generate Cargo lockfile
+        run: cargo generate-lockfile
+
+      - name: Upload generated integration files
+        uses: actions/upload-artifact@v4
+        with:
+          name: smetric-integration-generated
+          path: |
+            Cargo.lock
+            deny.toml
+          retention-days: 1
