@@ -13,7 +13,11 @@ export const SiemStatePanel = ({
   onAction,
   role = 'status',
 }: Props) => (
-  <div className="siem-state" role={role} aria-live={role === 'alert' ? 'assertive' : 'polite'}>
+  <div
+    className="siem-state"
+    role={role}
+    aria-live={role === 'alert' ? 'assertive' : 'polite'}
+  >
     <strong>{title}</strong>
     {description && <p>{description}</p>}
     {actionLabel && onAction && (
