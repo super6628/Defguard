@@ -1,9 +1,12 @@
 import { revalidateLogic } from '@tanstack/react-form';
+import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import type { AxiosError } from 'axios';
+import { useEffect, useRef, useState } from 'react';
 import z from 'zod';
 import { m } from '../../paraglide/messages';
 import api from '../../shared/api/api';
+import { brandConfig } from '../../shared/branding';
 import { LoginPage } from '../../shared/components/LoginPage/LoginPage';
 import { Button } from '../../shared/defguard-ui/components/Button/Button';
 import { InfoBanner } from '../../shared/defguard-ui/components/InfoBanner/InfoBanner';
@@ -12,8 +15,6 @@ import { ThemeSize, ThemeSpacing } from '../../shared/defguard-ui/types';
 import { createZodIssue } from '../../shared/defguard-ui/utils/zod';
 import { useAppForm } from '../../shared/form';
 import '../auth/LoginMain/style.scss';
-import { useMutation } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
 
 const formSchema = z.object({
   username: z.string(m.form_error_required()).trim().min(1, m.form_error_required()),
@@ -83,7 +84,7 @@ export const SetupLoginPage = () => {
 
   return (
     <LoginPage>
-      <h1>{m.login_main_title()}</h1>
+      <h1>{m.login_main_title({ productName: brandConfig.productName })}</h1>
       <h2>{m.initial_setup_login_subtitle()}</h2>
       <SizedBox height={ThemeSize.Xl3} />
       {tooManyAttempts && (
