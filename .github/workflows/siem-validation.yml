@@ -56,7 +56,7 @@ jobs:
 
       - name: Check SIEM SCSS formatting
         working-directory: web
-        run: pnpm exec prettier 'src/pages/SiemPage/**/*.scss' --check --log-level error
+        run: pnpm exec prettier 'src/pages/SiemPage/**/*.scss' --check
 
       - name: Lint SIEM SCSS
         working-directory: web
